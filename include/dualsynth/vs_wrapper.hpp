@@ -97,11 +97,14 @@ namespace VSInterface {
     VSNodeRef *_vs_clip;
     VSCore *_core;
     const VSAPI *_vsapi;
-    VSFrameContext *_frameCtx;
+    VSFrameContext *_frameCtx {nullptr};
     VSFetchFrameFunctor(VSNodeRef *clip, VSCore *core, const VSAPI *vsapi)
       : _vs_clip(clip), _core(core), _vsapi(vsapi) {}
     DSFrame operator()(int n) override {
-      return DSFrame(_vsapi->getFrameFilter(n, _vs_clip, _frameCtx), _core, _vsapi);
+      if (_frameCtx)
+        return DSFrame(_vsapi->getFrameFilter(n, _vs_clip, _frameCtx), _core, _vsapi);
+      else
+        return DSFrame(_vsapi->getFrame(n, _vs_clip, nullptr, 0), _core, _vsapi);
     }
     ~VSFetchFrameFunctor() override {
       _vsapi->freeNode(_vs_clip);
