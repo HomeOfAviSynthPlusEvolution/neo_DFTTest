@@ -46,7 +46,7 @@ struct DSFormat
     const int componentBitSizes[8] = {8,16,32,0,0,10,12,14};
     if (format == VideoInfo::CS_I420)
       format = VideoInfo::CS_YV12;
-    
+
     auto PYUV = VideoInfo::CS_PLANAR | VideoInfo::CS_YUV;
     IsFamilyYUV = (format & PYUV) == PYUV;
     auto PRGB = VideoInfo::CS_PLANAR | VideoInfo::CS_BGR;
@@ -62,7 +62,7 @@ struct DSFormat
       Planes = 4;
     else if (IsFamilyRGB && (format & VideoInfo::CS_RGBA_TYPE) == VideoInfo::CS_RGBA_TYPE)
       Planes = 4;
-    
+
     if (IsFamilyYUV && Planes > 1) {
       SSW = ((format >> VideoInfo::CS_Shift_Sub_Width) + 1) & 3;
       SSH = ((format >> VideoInfo::CS_Shift_Sub_Height) + 1) & 3;
