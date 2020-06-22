@@ -167,9 +167,9 @@ namespace VSInterface {
   void VS_CC Create(const VSMap *in, VSMap *out, void *userData, VSCore *core, const VSAPI *vsapi) {
     auto filter = new FilterType{};
     auto argument = VSInDelegator(in, vsapi);
+    VSFetchFrameFunctor* functor = nullptr;
     try {
       void* clip = nullptr;
-      VSFetchFrameFunctor* functor = nullptr;
       DSVideoInfo input_vi;
       try {
         argument.Read("clip", clip);
@@ -187,6 +187,7 @@ namespace VSInterface {
       char msg_buff[256];
       snprintf(msg_buff, 256, "%s: %s", filter->VSName(), err);
       vsapi->setError(out, msg_buff);
+      delete functor;
       delete filter;
     }
   }
