@@ -279,9 +279,12 @@ void func_0_avx2(unsigned int thread_id, int plane, const unsigned char * src_pt
 
     memset(ebuff, 0, ebpStride * height * sizeof(float));
 
-    std::for_each_n(std::execution::par_unseq, reinterpret_cast<char*>(0), d->threads, [&](char&idx)
-    {
+  #ifdef ENABLE_PAR
+    std::for_each_n(std::execution::par, reinterpret_cast<char*>(0), d->threads, [&](char&idx) {
         int bk = static_cast<int>(reinterpret_cast<intptr_t>(&idx));
+  #else
+    int bk = 0;
+  #endif
         auto block_start = bk * batch_size;
         auto block_end = std::min(block_start + batch_size, eheight);
 
@@ -319,7 +322,9 @@ void func_0_avx2(unsigned int thread_id, int plane, const unsigned char * src_pt
             srcp += srcStride * d->inc;
             ebpSaved += ebpStride * d->inc;
         }
+  #ifdef ENABLE_PAR
     });
+  #endif
 
     int dstWidth = d->vi_width;
     int dstHeight = d->vi_height;
@@ -349,9 +354,12 @@ void func_1_avx2(unsigned int thread_id, int plane, const unsigned char * src_pt
 
     memset(ebuff, 0, ebpStride * height * sizeof(float));
 
-    std::for_each_n(std::execution::par_unseq, reinterpret_cast<char*>(0), d->threads, [&](char&idx)
-    {
+  #ifdef ENABLE_PAR
+    std::for_each_n(std::execution::par, reinterpret_cast<char*>(0), d->threads, [&](char&idx) {
         int bk = static_cast<int>(reinterpret_cast<intptr_t>(&idx));
+  #else
+    int bk = 0;
+  #endif
         auto block_start = bk * batch_size;
         auto block_end = std::min(block_start + batch_size, eheight);
 
@@ -391,7 +399,9 @@ void func_1_avx2(unsigned int thread_id, int plane, const unsigned char * src_pt
             for (int q = 0; q < d->tbsize; q++)
                 srcp[q] += srcStride * d->inc;
         }
+  #ifdef ENABLE_PAR
     });
+  #endif
 
     int dstWidth = d->vi_width;
     int dstHeight = d->vi_height;

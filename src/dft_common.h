@@ -3,13 +3,21 @@
 #include <memory>
 #include <string>
 #include <vector>
-#include <execution>
+
+#ifdef HAS_EXECUTION
+  #include <execution>
+#endif
+
+#ifndef __cpp_lib_execution
+  #undef ENABLE_PAR
+#endif
+
 #include <VSHelper.h>
 #include "fftwlite.h"
 
 #ifndef _WIN32
   #define _aligned_malloc(a,b) aligned_alloc(b,a)
-  #define _aligned_free(a) free(a)
+  #define _aligned_free free
 #endif
 
 #define EXTRA(a,b) (((a) % (b)) ? ((b) - ((a) % (b))) : 0)
@@ -25,7 +33,7 @@ struct DFTTestData {
     float sbeta {2.5f}, tbeta {2.5f}, f0beta {1.0f};
     bool zmean {true};
     int dither {0};
-    int threads {6};
+    int threads {4};
     int process[3];
     float divisor, multiplier;
     int peak, barea, bvolume, ccnt, type, sbd1, ccnt2, inc;

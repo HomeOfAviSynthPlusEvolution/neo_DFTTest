@@ -1,10 +1,11 @@
-cmake_minimum_required (VERSION 3.15)
+cmake_minimum_required (VERSION 3.1)
 project (neo_dfttest CXX)
 file(GLOB CODE "src/*.cpp")
 file(GLOB SSE2_CODE_IMPL "src/*SSE2.cpp")
 file(GLOB AVX2_CODE_IMPL "src/*AVX2.cpp")
 add_library(neo-dfttest SHARED main.cpp src/version.rc src/vectorclass/instrset_detect.cpp ${CODE} ${CODE_IMPL})
 set_property(TARGET neo-dfttest PROPERTY CXX_STANDARD 17)
+option(ENABLE_PAR "Enable C++17 Parallel Execution" ON)
 add_compile_definitions(VS_TARGET_CPU_X86)
 
 find_package(Git REQUIRED)
@@ -56,10 +57,24 @@ elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Intel")
 else()
   set_source_files_properties(${SSE2_CODE_IMPL} PROPERTIES COMPILE_FLAGS "-msse2")
   set_source_files_properties(${AVX2_CODE_IMPL} PROPERTIES COMPILE_FLAGS "-mfma -mavx2")
+
+endif()
+
+include(CheckIncludeFileCXX)
+CHECK_INCLUDE_FILE_CXX(execution HAS_EXECUTION)
+if(HAS_EXECUTION)
+  add_definitions(-DHAS_EXECUTION)
+endif()
+if(ENABLE_PAR AND HAS_EXECUTION)
+  add_definitions(-DENABLE_PAR)
+
   if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_link_libraries(neo-dfttest tbb)
   endif()
+endif()
 
+if (NOT WIN32)
+  target_link_libraries(neo-dfttest dl)
 endif()
 
 add_custom_command(

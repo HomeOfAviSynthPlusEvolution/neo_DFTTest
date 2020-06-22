@@ -8,7 +8,6 @@
 #pragma once
 
 #include <numeric>
-#include <execution>
 #include <mutex>
 #include "dft_common.h"
 #include "version.hpp"
@@ -268,10 +267,14 @@ struct DFTTest final : Filter {
       throw "opt must be 0, 1, 2, or 3";
 
     if (ep.threads <= 0)
-      ep.threads = 6;
+      ep.threads = 4;
 
     if (ep.threads > 16)
       ep.threads = 16;
+
+    #ifndef ENABLE_PAR
+      ep.threads = 1;
+    #endif
 
     selectFunctions(ftype, opt, &ep);
 
