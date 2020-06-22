@@ -43,7 +43,11 @@ typedef fftwf_plan (*fftwf_plan_dft_c2r_3d_proc)(int n0, int n1, int n2, C *in, 
 #define FFTW_ESTIMATE (1U << 6)
 #define FFTW_WISDOM_ONLY (1U << 21)
 
+typedef int (*fftwf_init_threads_proc) ();
+typedef void (*fftwf_plan_with_nthreads_proc)(int nthreads);
+
 #define LOAD_FFT_FUNC(name) do {name = reinterpret_cast<name ## _proc>((void*)fftw3_address(#name)); if (name == NULL) throw "Library function is missing: " #name; } while(0)
+#define LOAD_FFT_FUNC_OPT(name) do {name = reinterpret_cast<name ## _proc>((void*)fftw3_address(#name)); } while(0)
 
 struct FFTFunctionPointers {
   lib_t library;
@@ -55,6 +59,8 @@ struct FFTFunctionPointers {
   fftwf_plan_dft_c2r_2d_proc fftwf_plan_dft_c2r_2d;
   fftwf_plan_dft_r2c_3d_proc fftwf_plan_dft_r2c_3d;
   fftwf_plan_dft_c2r_3d_proc fftwf_plan_dft_c2r_3d;
+  fftwf_init_threads_proc fftwf_init_threads;
+  fftwf_plan_with_nthreads_proc fftwf_plan_with_nthreads;
 
   #if _WIN32
     void fftw3_open() {
@@ -62,16 +68,16 @@ struct FFTFunctionPointers {
       if (library == NULL)
         library = LoadLibraryW(L"fftw3");
       if (library == NULL)
-        #ifdef _WIN32
-          throw("libfftw3f-3.dll or fftw3.dll not found. Please put in PATH or use LoadDll() plugin");
-        #else
-          throw("libfftw3f_threads.so.3 not found. Please install libfftw3-single3 (deb) or fftw-devel (rpm) package");
-        #endif
+        throw("libfftw3f-3.dll or fftw3.dll not found. Please put in PATH or use LoadDll() plugin");
     }
     void fftw3_close() { FreeLibrary(library); }
     func_t fftw3_address(LPCSTR func) { return GetProcAddress(library, func); }
   #else
-    void fftw3_open() { library = dlopen("libfftw3f_threads.so.3", RTLD_NOW); }
+    void fftw3_open() {
+      library = dlopen("libfftw3f_threads.so.3", RTLD_NOW);
+      if (library == NULL)
+        throw("libfftw3f_threads.so.3 not found. Please install libfftw3-single3 (deb) or fftw-devel (rpm) package");
+    }
     void fftw3_close() { dlclose(library); }
     func_t fftw3_address(const char * func) { return dlsym(library, func); }
   #endif
@@ -86,6 +92,8 @@ struct FFTFunctionPointers {
       LOAD_FFT_FUNC(fftwf_plan_dft_c2r_2d);
       LOAD_FFT_FUNC(fftwf_plan_dft_r2c_3d);
       LOAD_FFT_FUNC(fftwf_plan_dft_c2r_3d);
+      LOAD_FFT_FUNC_OPT(fftwf_init_threads);
+      LOAD_FFT_FUNC_OPT(fftwf_plan_with_nthreads);
     }
   }
 
@@ -93,6 +101,10 @@ struct FFTFunctionPointers {
     if (library != NULL) {
       fftw3_close();
     }
+  }
+
+  bool has_threading() {
+    return library && fftwf_init_threads && fftwf_plan_with_nthreads;
   }
 };
 

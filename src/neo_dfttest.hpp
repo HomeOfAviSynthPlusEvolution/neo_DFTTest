@@ -18,6 +18,7 @@ struct DFTTest final : Filter {
   DSVideoInfo out_vi;
   DFTTestData ep;
   FFTFunctionPointers fft;
+  int fft_threads {2};
 
   std::mutex thread_check_mutex;
   std::vector<bool> thread_id_store;
@@ -62,7 +63,8 @@ struct DFTTest final : Filter {
       Param {"v", Integer, false, true, false},
 
       Param {"opt", Integer},
-      Param {"threads", Integer}
+      Param {"threads", Integer},
+      Param {"fft_threads", Integer}
     };
   }
   void Initialize(InDelegator* in, DSVideoInfo in_vi, FetchFrameFunctor* fetch_frame) override
@@ -107,6 +109,15 @@ struct DFTTest final : Filter {
 
     in->Read("opt", opt);
     in->Read("threads", ep.threads);
+
+    in->Read("fft_threads", fft_threads);
+    if (fft_threads < 1)
+      fft_threads = 1;
+
+    if (fft_threads > 1 && fft.has_threading()) {
+      fft.fftwf_init_threads();
+      fft.fftwf_plan_with_nthreads(fft_threads);
+    }
 
     std::vector<int> nlocation;
     float alpha = ftype == 0 ? 5.0f : 7.0f;
