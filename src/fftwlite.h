@@ -22,16 +22,9 @@
 
 typedef float fftwf_complex[2];
 typedef struct fftwf_plan_s  *fftwf_plan;
-typedef void (*fftwf_destroy_plan_proc) (fftwf_plan);
-typedef void (*fftwf_execute_dft_r2c_proc) (fftwf_plan, float *realdata, fftwf_complex *fftsrc);
-typedef void (*fftwf_execute_dft_c2r_proc) (fftwf_plan, fftwf_complex *fftsrc, float *realdata);
 
 using R = float;
 using C = fftwf_complex;
-typedef fftwf_plan (*fftwf_plan_dft_r2c_2d_proc)(int n0, int n1, R *in, C *out, unsigned flags);
-typedef fftwf_plan (*fftwf_plan_dft_c2r_2d_proc)(int n0, int n1, C *in, R *out, unsigned flags);
-typedef fftwf_plan (*fftwf_plan_dft_r2c_3d_proc)(int n0, int n1, int n2, R *in, C *out, unsigned flags);
-typedef fftwf_plan (*fftwf_plan_dft_c2r_3d_proc)(int n0, int n1, int n2, C *in, R *out, unsigned flags);
 
 #define FFTW_MEASURE (0U)
 #define FFTW_DESTROY_INPUT (1U << 0)
@@ -43,42 +36,56 @@ typedef fftwf_plan (*fftwf_plan_dft_c2r_3d_proc)(int n0, int n1, int n2, C *in, 
 #define FFTW_ESTIMATE (1U << 6)
 #define FFTW_WISDOM_ONLY (1U << 21)
 
-typedef int (*fftwf_init_threads_proc) ();
-typedef void (*fftwf_plan_with_nthreads_proc)(int nthreads);
-
-#define LOAD_FFT_FUNC(name) do {name = reinterpret_cast<name ## _proc>((void*)fftw3_address(#name)); if (name == NULL) throw "Library function is missing: " #name; } while(0)
-#define LOAD_FFT_FUNC_OPT(name) do {name = reinterpret_cast<name ## _proc>((void*)fftw3_address(#name)); } while(0)
+#define LOAD_FFT_FUNC(name) do {name = reinterpret_cast<decltype(name)>((void*)fftw3_address(#name)); if (name == nullptr) throw "Library function is missing: " #name; } while(0)
+#define LOAD_FFT_FUNC_OPT(name) do {name = reinterpret_cast<decltype(name)>((void*)fftw3_address(#name)); } while(0)
 
 struct FFTFunctionPointers {
-  lib_t library;
+  lib_t library = nullptr;
 
-  fftwf_destroy_plan_proc fftwf_destroy_plan;
-  fftwf_execute_dft_r2c_proc fftwf_execute_dft_r2c;
-  fftwf_execute_dft_c2r_proc fftwf_execute_dft_c2r;
-  fftwf_plan_dft_r2c_2d_proc fftwf_plan_dft_r2c_2d;
-  fftwf_plan_dft_c2r_2d_proc fftwf_plan_dft_c2r_2d;
-  fftwf_plan_dft_r2c_3d_proc fftwf_plan_dft_r2c_3d;
-  fftwf_plan_dft_c2r_3d_proc fftwf_plan_dft_c2r_3d;
-  fftwf_init_threads_proc fftwf_init_threads;
-  fftwf_plan_with_nthreads_proc fftwf_plan_with_nthreads;
+  void (*fftwf_destroy_plan) (fftwf_plan);
+  void (*fftwf_execute_dft_r2c) (fftwf_plan, float *realdata, fftwf_complex *fftsrc);
+  void (*fftwf_execute_dft_c2r) (fftwf_plan, fftwf_complex *fftsrc, float *realdata);
+
+  fftwf_plan (*fftwf_plan_dft_r2c_2d)(int n0, int n1, R *in, C *out, unsigned flags);
+  fftwf_plan (*fftwf_plan_dft_c2r_2d)(int n0, int n1, C *in, R *out, unsigned flags);
+  fftwf_plan (*fftwf_plan_dft_r2c_3d)(int n0, int n1, int n2, R *in, C *out, unsigned flags);
+  fftwf_plan (*fftwf_plan_dft_c2r_3d)(int n0, int n1, int n2, C *in, R *out, unsigned flags);
+
+  int (*fftwf_init_threads) ();
+  void (*fftwf_plan_with_nthreads)(int nthreads);
 
   #if _WIN32
     void fftw3_open() {
       library = LoadLibraryW(L"libfftw3f-3");
-      if (library == NULL)
+      if (library == nullptr)
         library = LoadLibraryW(L"fftw3");
-      if (library == NULL)
+      if (library == nullptr)
         throw("libfftw3f-3.dll or fftw3.dll not found. Please put in PATH or use LoadDll() plugin");
     }
-    void fftw3_close() { FreeLibrary(library); }
+    void fftw3_close() {
+      if (library != nullptr)
+        FreeLibrary(library);
+      library = nullptr;
+    }
     func_t fftw3_address(LPCSTR func) { return GetProcAddress(library, func); }
   #else
+    #ifdef __MACH__
+      #define LIBFFTW3F_LIBNAME "libfftw3f_threads.dylib"
+      #define LIBFFTW3F_LIBNAME_NOT_FOUND LIBFFTW3F_LIBNAME " not found. Please install libfftw3."
+    #else
+      #define LIBFFTW3F_LIBNAME "libfftw3f_threads.so"
+      #define LIBFFTW3F_LIBNAME_NOT_FOUND LIBFFTW3F_LIBNAME " not found. Please install libfftw3-single3 (deb) or fftw-devel (rpm) package."
+    #endif
     void fftw3_open() {
-      library = dlopen("libfftw3f_threads.so.3", RTLD_NOW);
-      if (library == NULL)
-        throw("libfftw3f_threads.so.3 not found. Please install libfftw3-single3 (deb) or fftw-devel (rpm) package");
+      library = dlopen(LIBFFTW3F_LIBNAME, RTLD_NOW);
+      if (library == nullptr)
+        throw(LIBFFTW3F_LIBNAME_NOT_FOUND);
     }
-    void fftw3_close() { dlclose(library); }
+    void fftw3_close() {
+      if (library != nullptr)
+        dlclose(library);
+      library = nullptr;
+    }
     func_t fftw3_address(const char * func) { return dlsym(library, func); }
   #endif
   void load() {
