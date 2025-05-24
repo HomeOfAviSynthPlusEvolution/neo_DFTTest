@@ -12,6 +12,8 @@
 #include "dft_common.h"
 #include "version.hpp"
 
+static std::mutex init_fft_mutex;
+
 struct DFTTest final : Filter {
   InDelegator* _in;
   DSVideoInfo out_vi;
@@ -330,7 +332,6 @@ struct DFTTest final : Filter {
       throw "malloc failure (dftgr/dftgc)";
 
     {
-      static std::mutex init_fft_mutex;
       std::lock_guard<std::mutex> lock(init_fft_mutex);
       if (ep.tbsize > 1) {
         ep.ft = fft.fftwf_plan_dft_r2c_3d(ep.tbsize, ep.sbsize, ep.sbsize, dftgr, ep.dftgc, FFTW_PATIENT | FFTW_DESTROY_INPUT);
@@ -719,6 +720,8 @@ struct DFTTest final : Filter {
       _aligned_free(buf);
 
     if (fft.library) {
+      std::lock_guard<std::mutex> lock(init_fft_mutex);
+
       if (ep.ft)
         fft.fftwf_destroy_plan(ep.ft);
       if (ep.fti)
