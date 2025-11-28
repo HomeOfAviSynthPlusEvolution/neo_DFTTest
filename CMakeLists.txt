@@ -20,6 +20,7 @@ add_compile_definitions(VS_TARGET_CPU_X86)
 find_package(Git REQUIRED)
 execute_process(COMMAND ${GIT_EXECUTABLE} describe --first-parent --tags --always OUTPUT_VARIABLE GIT_REPO_VERSION)
 string(REGEX REPLACE "(r[0-9]+).*" "\\1" VERSION ${GIT_REPO_VERSION})
+execute_process(COMMAND ${GIT_EXECUTABLE} rev-list --count HEAD OUTPUT_VARIABLE GIT_COMMIT_COUNT OUTPUT_STRIP_TRAILING_WHITESPACE)
 
 configure_file (
   "${PROJECT_SOURCE_DIR}/src/version.hpp.in"
