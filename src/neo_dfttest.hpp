@@ -8,11 +8,8 @@
 #pragma once
 
 #include <numeric>
-#include <mutex>
 #include "dft_common.h"
 #include "version.hpp"
-
-static std::mutex init_fft_mutex;
 
 struct DFTTest final : Filter {
   InDelegator* _in;
@@ -20,6 +17,8 @@ struct DFTTest final : Filter {
   DFTTestData ep;
   FFTFunctionPointers fft;
   int fft_threads {2};
+  IScriptEnvironment* avs_env{ nullptr };
+  bool has_at_least_v12{ false };
 
   std::mutex thread_check_mutex;
   std::vector<bool> thread_id_store;
@@ -72,6 +71,9 @@ struct DFTTest final : Filter {
   {
     // in_vi and fetch_frame are useless for source filter
     Filter::Initialize(in, in_vi, fetch_frame);
+
+    this->avs_env = static_cast<IScriptEnvironment*>(in->GetEnv());
+    this->has_at_least_v12 = in->IsAVS12();
     fft.load();
 
     ep.fft = &fft;
@@ -332,7 +334,7 @@ struct DFTTest final : Filter {
       throw "malloc failure (dftgr/dftgc)";
 
     {
-      std::lock_guard<std::mutex> lock(init_fft_mutex);
+      GlobalLockGuard fftw_lock(this->avs_env, "fftw", this->has_at_least_v12);
       if (ep.tbsize > 1) {
         ep.ft = fft.fftwf_plan_dft_r2c_3d(ep.tbsize, ep.sbsize, ep.sbsize, dftgr, ep.dftgc, FFTW_PATIENT | FFTW_DESTROY_INPUT);
         ep.fti = fft.fftwf_plan_dft_c2r_3d(ep.tbsize, ep.sbsize, ep.sbsize, ep.dftgc, dftgr, FFTW_PATIENT | FFTW_DESTROY_INPUT);
@@ -720,7 +722,7 @@ struct DFTTest final : Filter {
       _aligned_free(buf);
 
     if (fft.library) {
-      std::lock_guard<std::mutex> lock(init_fft_mutex);
+        GlobalLockGuard lock(this->avs_env, "fftw", this->has_at_least_v12);
 
       if (ep.ft)
         fft.fftwf_destroy_plan(ep.ft);

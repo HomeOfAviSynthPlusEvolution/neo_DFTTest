@@ -111,9 +111,7 @@ struct DSFrame
     }
     else if (_env) {
       auto avsvi = vi.ToAVSVI();
-      bool has_at_least_v8 = true;
-      try { _env->CheckVersion(8); }
-      catch (const AvisynthError&) { has_at_least_v8 = false; }
+      bool has_at_least_v8 = _env->FunctionExists("propShow");
       auto new_avsframe = (has_at_least_v8) ? _env->NewVideoFrameP(avsvi, &_avssrc) : _env->NewVideoFrame(avsvi);
       auto dstp = new unsigned char*[Format.Planes];
       for (int i = 0; i < Format.Planes; i++)
