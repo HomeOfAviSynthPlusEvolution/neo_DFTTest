@@ -1,9 +1,18 @@
-cmake_minimum_required (VERSION 3.1)
+cmake_minimum_required (VERSION 3.5)
 project (neo_dfttest CXX)
-file(GLOB CODE "src/*.cpp")
-file(GLOB SSE2_CODE_IMPL "src/*SSE2.cpp")
-file(GLOB AVX2_CODE_IMPL "src/*AVX2.cpp")
-add_library(neo-dfttest SHARED main.cpp src/version.rc src/vectorclass/instrset_detect.cpp ${CODE} ${CODE_IMPL})
+add_library(neo-dfttest SHARED
+  main.cpp
+  src/version.rc
+  src/vectorclass/instrset_detect.cpp
+  src/core.cpp
+  src/core.h
+  src/core_AVX2.cpp
+  src/core_C.cpp
+  src/core_SSE2.cpp
+  src/dft_common.h
+  src/fftwlite.h
+  src/neo_dfttest.hpp
+)
 set_property(TARGET neo-dfttest PROPERTY CXX_STANDARD 17)
 option(ENABLE_PAR "Enable C++17 Parallel Execution" ON)
 add_compile_definitions(VS_TARGET_CPU_X86)
@@ -46,8 +55,8 @@ include_directories(.)
 include_directories(include/dualsynth)
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-  set_source_files_properties(${SSE2_CODE_IMPL} PROPERTIES COMPILE_FLAGS "/arch:SSE2")
-  set_source_files_properties(${AVX2_CODE_IMPL} PROPERTIES COMPILE_FLAGS "/arch:AVX2")
+  set_source_files_properties(src/core_SSE2.cpp PROPERTIES COMPILE_FLAGS "/arch:SSE2")
+  set_source_files_properties(src/core_AVX2.cpp PROPERTIES COMPILE_FLAGS "/arch:AVX2")
 
   if (CMAKE_GENERATOR_TOOLSET MATCHES "v[0-9]*_xp")
     target_compile_definitions(neo-dfttest PRIVATE WINVER=0x502 _WIN32_WINNT=0x502)
@@ -55,13 +64,13 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
   endif()
 
 elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Intel")
-  set_source_files_properties(${SSE2_CODE_IMPL} PROPERTIES COMPILE_FLAGS "/arch:SSE2")
-  set_source_files_properties(${AVX2_CODE_IMPL} PROPERTIES COMPILE_FLAGS "/arch:AVX2")
+  set_source_files_properties(src/core_SSE2.cpp PROPERTIES COMPILE_FLAGS "/arch:SSE2")
+  set_source_files_properties(src/core_AVX2.cpp PROPERTIES COMPILE_FLAGS "/arch:AVX2")
   target_link_libraries(neo-dfttest libmmds)
 
 else()
-  set_source_files_properties(${SSE2_CODE_IMPL} PROPERTIES COMPILE_FLAGS "-msse2")
-  set_source_files_properties(${AVX2_CODE_IMPL} PROPERTIES COMPILE_FLAGS "-mfma -mavx2")
+  set_source_files_properties(src/core_SSE2.cpp PROPERTIES COMPILE_FLAGS "-msse2")
+  set_source_files_properties(src/core_AVX2.cpp PROPERTIES COMPILE_FLAGS "-mfma -mavx2")
 
 endif()
 
