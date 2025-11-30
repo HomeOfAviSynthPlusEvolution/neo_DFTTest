@@ -326,13 +326,9 @@ void func_0_avx2(unsigned int thread_id, int plane, const unsigned char * src_pt
     });
   #endif
 
-    int dstWidth = d->vi_width;
-    int dstHeight = d->vi_height;
+    int dstWidth = d->planeWidth[plane];
+    int dstHeight = d->planeHeight[plane];
     int dstStride = dst_stride_bytes / sizeof(T);
-    if (plane > 0) {
-        dstWidth >>= d->vi_subSamplingW;
-        dstHeight >>= d->vi_subSamplingH;
-    }
     T * dstp = reinterpret_cast<T *>(dst_ptr);
     const float * ebp = ebuff + ebpStride * ((height - dstHeight) / 2) + (width - dstWidth) / 2;
     if (d->dither > 0)
@@ -403,13 +399,9 @@ void func_1_avx2(unsigned int thread_id, int plane, const unsigned char * src_pt
     });
   #endif
 
-    int dstWidth = d->vi_width;
-    int dstHeight = d->vi_height;
+    int dstWidth = d->planeWidth[plane];
+    int dstHeight = d->planeHeight[plane];
     int dstStride = dst_stride_bytes / sizeof(T);
-    if (plane > 0) {
-        dstWidth >>= d->vi_subSamplingW;
-        dstHeight >>= d->vi_subSamplingH;
-    }
     T * dstp = reinterpret_cast<T *>(dst_ptr);
     const float * ebp = ebuff + ebpStride * ((height - dstHeight) / 2) + (width - dstWidth) / 2;
     if (d->dither > 0)

@@ -15,7 +15,7 @@ add_library(neo-dfttest SHARED
 )
 set_property(TARGET neo-dfttest PROPERTY CXX_STANDARD 17)
 option(ENABLE_PAR "Enable C++17 Parallel Execution" ON)
-add_compile_definitions(VS_TARGET_CPU_X86)
+add_compile_definitions(VS_TARGET_CPU_X86 _CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_DEPRECATE)
 
 find_package(Git REQUIRED)
 execute_process(COMMAND ${GIT_EXECUTABLE} describe --first-parent --tags --always OUTPUT_VARIABLE GIT_REPO_VERSION)

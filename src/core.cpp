@@ -2,18 +2,12 @@
 
 template<typename T>
 static void copyPad(int plane, const unsigned char * src_ptr, int src_stride_bytes, unsigned char * dst_ptr, const DFTTestData * d) noexcept {
-    int srcWidth = d->vi_width;
-    int srcHeight = d->vi_height;
-    int srcStride = src_stride_bytes / sizeof(T);
+    int srcWidth = d->planeWidth[plane];
+    int srcHeight = d->planeHeight[plane];
     int dstWidth = d->padWidth[plane];
     int dstHeight = d->padHeight[plane];
     int dstStrideBytes = d->padStride[plane];
     int dstStride = d->padStride[plane] / sizeof(T);
-
-    if (plane > 0) {
-        srcWidth >>= d->vi_subSamplingW;
-        srcHeight >>= d->vi_subSamplingH;
-    }
 
     const int offy = (dstHeight - srcHeight) / 2;
     const int offx = (dstWidth - srcWidth) / 2;

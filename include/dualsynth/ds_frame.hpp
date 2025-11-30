@@ -58,7 +58,7 @@ struct DSFrame
     : _avssrc(src), _vi(vi), _env(env)
   {
     if (_avssrc) {
-      Format = DSFormat(_vi.pixel_type);
+      Format = DSFormat(_vi);
       planes = Format.IsFamilyYUV ? planes_y : planes_r;
       FrameWidth = _vi.width;
       FrameHeight = _vi.height;
@@ -170,7 +170,7 @@ struct DSFrame
   DSFrame(const DSFrame & old)
   {
     _avssrc = old._avssrc;
-    std::memcpy(this, &old, sizeof(DSFrame));
+    std::memcpy((void*)this, &old, sizeof(DSFrame));
     if (old.SrcPointers) {
       SrcPointers = new const unsigned char*[Format.Planes];
       std::copy_n(old.SrcPointers, Format.Planes, SrcPointers);
@@ -205,7 +205,7 @@ struct DSFrame
       _vsapi->freeFrame(_vssrc);
 
     _avssrc = old._avssrc;
-    std::memcpy(this, &old, sizeof(DSFrame));
+    std::memcpy((void*)this, &old, sizeof(DSFrame));
     if (old.SrcPointers) {
       SrcPointers = new const unsigned char*[Format.Planes];
       std::copy_n(old.SrcPointers, Format.Planes, SrcPointers);
@@ -227,7 +227,7 @@ struct DSFrame
   DSFrame(DSFrame && old) noexcept
   {
     _avssrc = old._avssrc;
-    std::memcpy(this, &old, sizeof(DSFrame));
+    std::memcpy((void*)this, &old, sizeof(DSFrame));
     old.SrcPointers = nullptr;
     old.DstPointers = nullptr;
     old.StrideBytes = nullptr;
@@ -251,7 +251,7 @@ struct DSFrame
       _vsapi->freeFrame(_vssrc);
 
     _avssrc = old._avssrc;
-    std::memcpy(this, &old, sizeof(DSFrame));
+    std::memcpy((void*)this, &old, sizeof(DSFrame));
     old.SrcPointers = nullptr;
     old.DstPointers = nullptr;
     old.StrideBytes = nullptr;

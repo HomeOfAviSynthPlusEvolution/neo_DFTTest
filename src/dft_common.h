@@ -36,12 +36,14 @@ struct DFTTestData {
     bool zmean {true};
     int dither {0};
     int threads {4};
-    int process[3];
+    int process[4];
+    int planeWidth[4];
+    int planeHeight[4];
     float divisor, multiplier;
     int peak, barea, bvolume, ccnt, type, sbd1, ccnt2, inc;
     bool uf0b;
-    std::vector<unsigned char *> pad[3] {std::vector<unsigned char *>(), std::vector<unsigned char *>(), std::vector<unsigned char *>()};
-    int padWidth[3], padHeight[3], padStride[3], padBlockSize[3], eStride[3], eHeight[3], eBatchSize[3];
+    std::vector<unsigned char *> pad[4] {std::vector<unsigned char *>(), std::vector<unsigned char *>(), std::vector<unsigned char *>()};
+    int padWidth[4], padHeight[4], padStride[4], padBlockSize[4], eStride[4], eHeight[4], eBatchSize[4];
     float * hw {nullptr}, * sigmas {nullptr}, * sigmas2 {nullptr}, * pmins {nullptr}, * pmaxs {nullptr};
     fftwf_complex * dftgc {nullptr};
     fftwf_plan ft {nullptr}, fti {nullptr};

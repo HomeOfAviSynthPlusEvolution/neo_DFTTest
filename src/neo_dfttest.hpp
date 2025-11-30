@@ -62,6 +62,7 @@ struct DFTTest final : Filter {
       Param {"y", Integer, false, true, false},
       Param {"u", Integer, false, true, false},
       Param {"v", Integer, false, true, false},
+      Param{ "a", Integer, false, true, false },
 
       Param {"opt", Integer},
       Param {"threads", Integer},
@@ -186,9 +187,11 @@ struct DFTTest final : Filter {
       ep.process[0] =
       ep.process[1] =
       ep.process[2] = 3;
+      ep.process[3] = 2;
       in->Read("y", ep.process[0]);
       in->Read("u", ep.process[1]);
       in->Read("v", ep.process[2]);
+      in->Read("a", ep.process[3]);
     }
 
 
@@ -302,8 +305,12 @@ struct DFTTest final : Filter {
     ep.inc = (ep.type & 1) ? ep.sbsize - ep.sosize : 1;
 
     for (int plane = 0; plane < ep.vi_numPlanes; plane++) {
-      const int width = ep.vi_width >> (plane ? ep.vi_subSamplingW : 0);
-      const int height = ep.vi_height >> (plane ? ep.vi_subSamplingH : 0);
+      const int shiftW = (plane == 1 || plane == 2) ? ep.vi_subSamplingW : 0;
+      const int shiftH = (plane == 1 || plane == 2) ? ep.vi_subSamplingH : 0;
+      ep.planeWidth[plane] = ep.vi_width >> shiftW;
+      ep.planeHeight[plane] = ep.vi_height >> shiftH;
+      const int width = ep.planeWidth[plane];
+      const int height = ep.planeHeight[plane];
 
       if (smode == 0) {
         const int ae = (ep.sbsize >> 1) << 1;
@@ -596,6 +603,8 @@ struct DFTTest final : Filter {
           ep.pad[1].push_back((unsigned char *)_aligned_malloc(ep.padBlockSize[1] * ep.tbsize, FRAME_ALIGN));
         while (ep.process[2] == 3 && ep.pad[2].size() <= thread_id)
           ep.pad[2].push_back((unsigned char *)_aligned_malloc(ep.padBlockSize[2] * ep.tbsize, FRAME_ALIGN));
+        while (ep.process[3] == 3 && ep.pad[3].size() <= thread_id)
+          ep.pad[3].push_back((unsigned char*)_aligned_malloc(ep.padBlockSize[3] * ep.tbsize, FRAME_ALIGN));
         if (ep.dither > 0) {
           while (ep.rngs.size() <= thread_id)
             ep.rngs.push_back(std::make_unique<MTRand>());
@@ -612,18 +621,12 @@ struct DFTTest final : Filter {
 
     if (ep.tbsize == 1) {
       for (int p = 0; p < ep.vi_numPlanes; p++) {
-        bool chroma = in_vi.Format.IsFamilyYUV && p > 0 && p < 3;
-        auto height = in_vi.Height;
-        auto width = in_vi.Width;
+        auto height = ep.planeHeight[p];
+        auto width = ep.planeWidth[p];
         auto src_stride = src0.StrideBytes[p];
         auto src_ptr = src0.SrcPointers[p];
         auto dst_stride = dst.StrideBytes[p];
         auto dst_ptr = dst.DstPointers[p];
-
-        if (chroma) {
-          height >>= in_vi.Format.SSH;
-          width >>= in_vi.Format.SSW;
-        }
 
         if (ep.process[p] == 3) {
           auto pad = ep.pad[p][thread_id];
@@ -646,18 +649,12 @@ struct DFTTest final : Filter {
     const int pos = ep.tbsize / 2;
 
     for (int p = 0; p < ep.vi_numPlanes; p++) {
-      bool chroma = in_vi.Format.IsFamilyYUV && p > 0 && p < 3;
-      auto height = in_vi.Height;
-      auto width = in_vi.Width;
+      auto height = ep.planeHeight[p];
+      auto width = ep.planeWidth[p];
       auto src0_stride = src0.StrideBytes[p];
       auto src0_ptr = src0.SrcPointers[p];
       auto dst_stride = dst.StrideBytes[p];
       auto dst_ptr = dst.DstPointers[p];
-
-      if (chroma) {
-        height >>= in_vi.Format.SSH;
-        width >>= in_vi.Format.SSW;
-      }
 
       if (ep.process[p] == 3) {
         auto pad0 = ep.pad[p][thread_id];
@@ -740,6 +737,8 @@ struct DFTTest final : Filter {
     for (auto &&buf : ep.pad[1])
       _aligned_free(buf);
     for (auto &&buf : ep.pad[2])
+      _aligned_free(buf);
+    for (auto&& buf : ep.pad[3])
       _aligned_free(buf);
     for (auto&& buf : ep.d_buffs)
       _aligned_free(buf);
