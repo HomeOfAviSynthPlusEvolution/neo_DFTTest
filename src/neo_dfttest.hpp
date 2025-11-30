@@ -327,8 +327,12 @@ struct DFTTest final : Filter {
       throw "malloc failure (hw)";
     createWindow(ep.hw, tmode, smode, &ep);
 
+    struct AlignedDeleter {
+        void operator ()(void* p) const { _aligned_free(p); }
+    };
+
     float * dftgr = (float*)_aligned_malloc((ep.bvolume + 7) * sizeof(float), FRAME_ALIGN);
-    auto dftgr_smart = std::shared_ptr<float>(dftgr, &_aligned_free);
+    std::unique_ptr<float, AlignedDeleter> dftgr_smart(dftgr);
     ep.dftgc = (fftwf_complex*)_aligned_malloc((ep.ccnt + 7) * sizeof(fftwf_complex), FRAME_ALIGN);
     if (!dftgr || !ep.dftgc)
       throw "malloc failure (dftgr/dftgc)";
@@ -391,9 +395,9 @@ struct DFTTest final : Filter {
         sydata = parseSigmaLocation(ssy, sycnt, sigma, ndiv);
         sxdata = parseSigmaLocation(ssx, sxcnt, sigma, ndiv);
       }
-      auto t_smart = std::shared_ptr<float>(tdata);
-      auto sx_smart = std::shared_ptr<float>(sxdata);
-      auto sy_smart = std::shared_ptr<float>(sydata);
+      auto t_smart = std::unique_ptr<float[]>(tdata);
+      auto sx_smart = std::unique_ptr<float[]>(sxdata);
+      auto sy_smart = std::unique_ptr<float[]>(sydata);
 
       const int cpx = ep.sbsize / 2 + 1;
       float pft, pfy, pfx;
@@ -441,15 +445,16 @@ struct DFTTest final : Filter {
       float * VS_RESTRICT hw2 = (float*)_aligned_malloc((ep.bvolume + 7) * sizeof(float), FRAME_ALIGN);
       if (!hw2)
         throw "malloc failure (hw2)";
-      auto hw2_smart = std::shared_ptr<float>(hw2, &_aligned_free);
+
+      std::unique_ptr<float, AlignedDeleter> hw2_smart(hw2);
       createWindow(hw2, 0, 0, &ep);
 
       float * VS_RESTRICT dftr = (float*)_aligned_malloc((ep.bvolume + 7) * sizeof(float), FRAME_ALIGN);
       fftwf_complex * dftgc2 = (fftwf_complex*)_aligned_malloc((ep.ccnt + 7) * sizeof(fftwf_complex), FRAME_ALIGN);
       if (!dftr || !dftgc2)
         throw "malloc failure (dftr/dftgc2)";
-      auto dftr_smart = std::shared_ptr<float>(dftr, &_aligned_free);
-      auto dftgc2_smart = std::shared_ptr<fftwf_complex>((float*)dftgc2, &_aligned_free);
+      std::unique_ptr<float, AlignedDeleter> dftr_smart(dftr);
+      std::unique_ptr<fftwf_complex, AlignedDeleter> dftgc2_smart(dftgc2);
 
       float wscale2 = 0.0f;
       int w = 0;
@@ -466,7 +471,7 @@ struct DFTTest final : Filter {
 
       int nnpoints = 0;
       NPInfo * npts = new NPInfo[500];
-      auto npts_smart = std::shared_ptr<NPInfo>(npts);
+      auto npts_smart = std::unique_ptr<NPInfo[]>(npts);
 
       for (int i = 0; i < nlocation.size(); i += 4) {
         const int fn = nlocation[i + 0];
@@ -502,8 +507,8 @@ struct DFTTest final : Filter {
       fftwf_complex * dftc2 = (fftwf_complex*)_aligned_malloc((ep.ccnt + 7) * sizeof(fftwf_complex), FRAME_ALIGN);
       if (!dftc || !dftc2)
         throw "malloc failure (dftc/dftc2)";
-      auto dftc_smart = std::shared_ptr<fftwf_complex>((float*)dftc, &_aligned_free);
-      auto dftc2_smart = std::shared_ptr<fftwf_complex>((float*)dftc2, &_aligned_free);
+      std::unique_ptr<fftwf_complex, AlignedDeleter> dftc_smart(dftc);
+      std::unique_ptr<fftwf_complex, AlignedDeleter> dftc2_smart(dftc2);
 
       for (int ct = 0; ct < nnpoints; ct++) {
         for (int z = 0; z < ep.tbsize; z++) {
