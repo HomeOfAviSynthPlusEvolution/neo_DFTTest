@@ -94,7 +94,29 @@ struct DSFrame
     }
     else if(_avssrc) {
       // Create a new AVS frame
-      return Create(_vi);
+      DSFrame new_frame = Create(_vi);
+
+      if (copy) {
+        for (int p = 0; p < Format.Planes; ++p) {
+          int row_size = _avssrc->GetRowSize(planes[p]);
+          int height = _avssrc->GetHeight(planes[p]);
+          int src_pitch = StrideBytes[p];
+          int dst_pitch = new_frame.StrideBytes[p];
+          const uint8_t* src_ptr = SrcPointers[p];
+          uint8_t* dst_ptr = new_frame.DstPointers[p];
+
+          if (src_pitch == dst_pitch && row_size == src_pitch)
+            std::memcpy(dst_ptr, src_ptr, src_pitch * height);
+          else {
+            for (int y = 0; y < height; ++y) {
+              std::memcpy(dst_ptr, src_ptr, row_size);
+              src_ptr += src_pitch;
+              dst_ptr += dst_pitch;
+            }
+          }
+        }
+      }
+      return new_frame;
     }
     throw "Unable to create from nothing.";
   }
