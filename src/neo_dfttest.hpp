@@ -21,7 +21,7 @@ struct DFTTest final : Filter {
   bool has_at_least_v12{ false };
 
   std::mutex thread_check_mutex;
-  std::vector<bool> thread_id_store;
+  std::vector<int> thread_id_store;
 
   const char* VSName() const override { return "DFTTest"; }
   const char* AVSName() const override { return "neo_dfttest"; }
@@ -328,7 +328,7 @@ struct DFTTest final : Filter {
     createWindow(ep.hw, tmode, smode, &ep);
 
     struct AlignedDeleter {
-        void operator ()(void* p) const { _aligned_free(p); }
+      void operator ()(void* p) const { _aligned_free(p); }
     };
 
     float * dftgr = (float*)_aligned_malloc((ep.bvolume + 7) * sizeof(float), FRAME_ALIGN);
@@ -576,26 +576,28 @@ struct DFTTest final : Filter {
     {
       std::lock_guard<std::mutex> lock(thread_check_mutex);
       // Find empty slot
-      auto it = std::find(thread_id_store.begin(), thread_id_store.end(), false);
+      auto it = std::find(thread_id_store.begin(), thread_id_store.end(), 0);
       thread_id = static_cast<int>(std::distance(thread_id_store.begin(), it));
-      if (it == thread_id_store.end())
-        thread_id_store.push_back(false);
-      thread_id_store[thread_id] = true;
+      if (it == thread_id_store.end()) {
+        thread_id_store.push_back(1);
 
-      while (ep.ebuff.size() <= thread_id)
-        ep.ebuff.push_back((float *)_aligned_malloc(sizeof(float) * ep.eStride[0] * ep.padHeight[0], FRAME_ALIGN));
-      while (ep.dftr.size() <= thread_id)
-        ep.dftr.push_back((float *)_aligned_malloc(sizeof(float) * (((ep.bvolume + 7) | 15) + 1) * ep.threads, FRAME_ALIGN));
-      while (ep.dftc.size() <= thread_id)
-        ep.dftc.push_back((fftwf_complex *)_aligned_malloc(sizeof(fftwf_complex) * (((ep.ccnt + 7) | 15) + 1) * ep.threads, FRAME_ALIGN));
-      while (ep.dftc2.size() <= thread_id)
-        ep.dftc2.push_back((fftwf_complex *)_aligned_malloc(sizeof(fftwf_complex) * (((ep.ccnt + 7) | 15) + 1) * ep.threads, FRAME_ALIGN));
-      while (ep.process[0] == 3 && ep.pad[0].size() <= thread_id)
-        ep.pad[0].push_back((unsigned char *)_aligned_malloc(ep.padBlockSize[0] * ep.tbsize, FRAME_ALIGN));
-      while (ep.process[1] == 3 && ep.pad[1].size() <= thread_id)
-        ep.pad[1].push_back((unsigned char *)_aligned_malloc(ep.padBlockSize[1] * ep.tbsize, FRAME_ALIGN));
-      while (ep.process[2] == 3 && ep.pad[2].size() <= thread_id)
-        ep.pad[2].push_back((unsigned char *)_aligned_malloc(ep.padBlockSize[2] * ep.tbsize, FRAME_ALIGN));
+        while (ep.ebuff.size() <= thread_id)
+            ep.ebuff.push_back((float*)_aligned_malloc(sizeof(float) * ep.eStride[0] * ep.padHeight[0], FRAME_ALIGN));
+        while (ep.dftr.size() <= thread_id)
+            ep.dftr.push_back((float*)_aligned_malloc(sizeof(float) * (((ep.bvolume + 7) | 15) + 1) * ep.threads, FRAME_ALIGN));
+        while (ep.dftc.size() <= thread_id)
+            ep.dftc.push_back((fftwf_complex*)_aligned_malloc(sizeof(fftwf_complex) * (((ep.ccnt + 7) | 15) + 1) * ep.threads, FRAME_ALIGN));
+        while (ep.dftc2.size() <= thread_id)
+            ep.dftc2.push_back((fftwf_complex*)_aligned_malloc(sizeof(fftwf_complex) * (((ep.ccnt + 7) | 15) + 1) * ep.threads, FRAME_ALIGN));
+        while (ep.process[0] == 3 && ep.pad[0].size() <= thread_id)
+            ep.pad[0].push_back((unsigned char*)_aligned_malloc(ep.padBlockSize[0] * ep.tbsize, FRAME_ALIGN));
+        while (ep.process[1] == 3 && ep.pad[1].size() <= thread_id)
+            ep.pad[1].push_back((unsigned char*)_aligned_malloc(ep.padBlockSize[1] * ep.tbsize, FRAME_ALIGN));
+        while (ep.process[2] == 3 && ep.pad[2].size() <= thread_id)
+            ep.pad[2].push_back((unsigned char*)_aligned_malloc(ep.padBlockSize[2] * ep.tbsize, FRAME_ALIGN));
+      }
+      else
+        thread_id_store[thread_id] = 1;
     }
 
     auto src0 = in_frames[n];
@@ -625,7 +627,12 @@ struct DFTTest final : Filter {
           framecpy(dst_ptr, dst_stride, src_ptr, src_stride, width * in_vi.Format.BytesPerSample, height);
         }
       }
-      thread_id_store[thread_id] = false;
+
+      {
+        std::lock_guard<std::mutex> lock(thread_check_mutex);
+        thread_id_store[thread_id] = 0;
+      }
+      
       return dst;
     }
 
