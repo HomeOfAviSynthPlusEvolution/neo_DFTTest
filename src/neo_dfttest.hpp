@@ -696,6 +696,7 @@ struct DFTTest final : Filter {
 
   template<typename T>
   void parse_array_string(std::string str, std::vector<T>& sdata) {
+    sdata.clear();
     std::stringstream ss(str);
     float tmpf;
     while (!ss.eof()) {
