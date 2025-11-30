@@ -58,7 +58,7 @@ Parameters:
 
     Default: 0.
 
-- *y*, *u*, *v* (AviSynth+ only)
+- *y*, *u*, *v*, *a* (AviSynth+ only)
 
     Whether a plane is to be filtered.
 
