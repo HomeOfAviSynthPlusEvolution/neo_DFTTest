@@ -675,7 +675,10 @@ struct DFTTest final : Filter {
       }
     }
 
-    thread_id_store[thread_id] = false;
+    {
+      std::lock_guard<std::mutex> lock(thread_check_mutex);
+      thread_id_store[thread_id] = 0;
+    }
     return dst;
   }
 
