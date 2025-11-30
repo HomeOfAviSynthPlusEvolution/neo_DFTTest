@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include <locale>
 #include <numeric>
 #include "dft_common.h"
 #include "version.hpp"
@@ -698,6 +699,7 @@ struct DFTTest final : Filter {
   void parse_array_string(std::string str, std::vector<T>& sdata) {
     sdata.clear();
     std::stringstream ss(str);
+    ss.imbue(std::locale::classic());
     float tmpf;
     while (!ss.eof()) {
       do {
