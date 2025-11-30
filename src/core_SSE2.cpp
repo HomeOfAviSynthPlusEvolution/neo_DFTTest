@@ -345,14 +345,14 @@ void cast(const float * ebp, float * dstp, const int dstWidth, const int dstHeig
 
 template<typename T>
 static inline void dither(const float * ebp, T * VS_RESTRICT dstp, const int dstWidth, const int dstHeight, const int dstStride, const int ebpStride,
-                 const float multiplier, const int peak, const int dither_mode) noexcept {
+                 const float multiplier, const int peak, const int dither_mode, MTRand &rng, float *dither_buff) noexcept {
     cast(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, multiplier, peak);
 }
 
 template<>
 void dither<uint8_t>(const float * ebp, uint8_t * VS_RESTRICT dstp, const int dstWidth, const int dstHeight, const int dstStride, const int ebpStride,
-                 const float multiplier, const int peak, const int dither_mode) noexcept {
-    dither_c(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, multiplier, peak, dither_mode);
+                 const float multiplier, const int peak, const int dither_mode, MTRand& rng, float *dither_buff) noexcept {
+    dither_c(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, multiplier, peak, dither_mode, rng, dither_buff);
 }
 
 template<typename T>
@@ -425,7 +425,7 @@ void func_0_sse2(unsigned int thread_id, int plane, const unsigned char * src_pt
     T * dstp = reinterpret_cast<T *>(dst_ptr);
     const float * ebp = ebuff + ebpStride * ((height - dstHeight) / 2) + (width - dstWidth) / 2;
     if (d->dither > 0)
-        dither(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, d->multiplier, d->peak, d->dither);
+        dither(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, d->multiplier, d->peak, d->dither, *d->rngs[thread_id], d->d_buffs[thread_id]);
     else
         cast(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, d->multiplier, d->peak);
 }
@@ -502,7 +502,7 @@ void func_1_sse2(unsigned int thread_id, int plane, const unsigned char * src_pt
     T * dstp = reinterpret_cast<T *>(dst_ptr);
     const float * ebp = ebuff + ebpStride * ((height - dstHeight) / 2) + (width - dstWidth) / 2;
     if (d->dither > 0)
-        dither(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, d->multiplier, d->peak, d->dither);
+        dither(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, d->multiplier, d->peak, d->dither, *d->rngs[thread_id], d->d_buffs[thread_id]);
     else
         cast(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, d->multiplier, d->peak);
 }

@@ -582,19 +582,25 @@ struct DFTTest final : Filter {
         thread_id_store.push_back(1);
 
         while (ep.ebuff.size() <= thread_id)
-            ep.ebuff.push_back((float*)_aligned_malloc(sizeof(float) * ep.eStride[0] * ep.padHeight[0], FRAME_ALIGN));
+          ep.ebuff.push_back((float *)_aligned_malloc(sizeof(float) * ep.eStride[0] * ep.padHeight[0], FRAME_ALIGN));
         while (ep.dftr.size() <= thread_id)
-            ep.dftr.push_back((float*)_aligned_malloc(sizeof(float) * (((ep.bvolume + 7) | 15) + 1) * ep.threads, FRAME_ALIGN));
+          ep.dftr.push_back((float *)_aligned_malloc(sizeof(float) * (((ep.bvolume + 7) | 15) + 1) * ep.threads, FRAME_ALIGN));
         while (ep.dftc.size() <= thread_id)
-            ep.dftc.push_back((fftwf_complex*)_aligned_malloc(sizeof(fftwf_complex) * (((ep.ccnt + 7) | 15) + 1) * ep.threads, FRAME_ALIGN));
+          ep.dftc.push_back((fftwf_complex*)_aligned_malloc(sizeof(fftwf_complex) * (((ep.ccnt + 7) | 15) + 1) * ep.threads, FRAME_ALIGN));
         while (ep.dftc2.size() <= thread_id)
-            ep.dftc2.push_back((fftwf_complex*)_aligned_malloc(sizeof(fftwf_complex) * (((ep.ccnt + 7) | 15) + 1) * ep.threads, FRAME_ALIGN));
+          ep.dftc2.push_back((fftwf_complex*)_aligned_malloc(sizeof(fftwf_complex) * (((ep.ccnt + 7) | 15) + 1) * ep.threads, FRAME_ALIGN));
         while (ep.process[0] == 3 && ep.pad[0].size() <= thread_id)
-            ep.pad[0].push_back((unsigned char*)_aligned_malloc(ep.padBlockSize[0] * ep.tbsize, FRAME_ALIGN));
+          ep.pad[0].push_back((unsigned char *)_aligned_malloc(ep.padBlockSize[0] * ep.tbsize, FRAME_ALIGN));
         while (ep.process[1] == 3 && ep.pad[1].size() <= thread_id)
-            ep.pad[1].push_back((unsigned char*)_aligned_malloc(ep.padBlockSize[1] * ep.tbsize, FRAME_ALIGN));
+          ep.pad[1].push_back((unsigned char *)_aligned_malloc(ep.padBlockSize[1] * ep.tbsize, FRAME_ALIGN));
         while (ep.process[2] == 3 && ep.pad[2].size() <= thread_id)
-            ep.pad[2].push_back((unsigned char*)_aligned_malloc(ep.padBlockSize[2] * ep.tbsize, FRAME_ALIGN));
+          ep.pad[2].push_back((unsigned char *)_aligned_malloc(ep.padBlockSize[2] * ep.tbsize, FRAME_ALIGN));
+        if (ep.dither > 0) {
+          while (ep.rngs.size() <= thread_id)
+            ep.rngs.push_back(std::make_unique<MTRand>());
+          while (ep.d_buffs.size() <= thread_id)
+            ep.d_buffs.push_back((float *)_aligned_malloc(sizeof(float) * 2 * ep.vi_width, FRAME_ALIGN));
+        }
       }
       else
         thread_id_store[thread_id] = 1;
@@ -731,6 +737,8 @@ struct DFTTest final : Filter {
     for (auto &&buf : ep.pad[1])
       _aligned_free(buf);
     for (auto &&buf : ep.pad[2])
+      _aligned_free(buf);
+    for (auto&& buf : ep.d_buffs)
       _aligned_free(buf);
 
     if (fft.library) {

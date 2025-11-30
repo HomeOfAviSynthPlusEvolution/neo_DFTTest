@@ -15,6 +15,8 @@
 #include <VSHelper.h>
 #include "fftwlite.h"
 
+#include "MersenneTwister.h"
+
 #ifndef _WIN32
   #define _aligned_malloc(a,b) aligned_alloc(b,a)
   #define _aligned_free free
@@ -44,6 +46,9 @@ struct DFTTestData {
     fftwf_complex * dftgc {nullptr};
     fftwf_plan ft {nullptr}, fti {nullptr};
 
+    std::vector<float*> d_buffs;
+    std::vector < std::unique_ptr<MTRand>> rngs;
+
     std::vector<float *> ebuff;
     std::vector<float *> dftr;
     std::vector<fftwf_complex *> dftc, dftc2;
@@ -67,4 +72,4 @@ void removeMean_c(float * VS_RESTRICT dftc, const float * dftgc, const int ccnt,
 template<typename T>
 void proc0_c(const T * s0, const float * s1, float * VS_RESTRICT d, const int p0, const int p1, const float divisor) noexcept;
 void dither_c(const float * ebp, uint8_t * VS_RESTRICT dstp, const int dstWidth, const int dstHeight, const int dstStride, const int ebpStride,
-                 const float multiplier, const int peak, const int dither_mode) noexcept;
+                 const float multiplier, const int peak, const int dither_mode, MTRand &rng, float *dither_buff) noexcept;

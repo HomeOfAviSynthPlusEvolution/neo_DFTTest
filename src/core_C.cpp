@@ -212,19 +212,17 @@ void cast(const float * ebp, float * VS_RESTRICT dstp, const int dstWidth, const
 
 template<typename T>
 static inline void dither(const float * ebp, T * VS_RESTRICT dstp, const int dstWidth, const int dstHeight, const int dstStride, const int ebpStride,
-                 const float multiplier, const int peak, const int dither_mode) noexcept {
+                 const float multiplier, const int peak, const int dither_mode, MTRand &rng, float *dither_buff) noexcept {
     cast(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, multiplier, peak);
 }
 
 template<>
 inline void dither<uint8_t>(const float * ebp, uint8_t * VS_RESTRICT dstp, const int dstWidth, const int dstHeight, const int dstStride, const int ebpStride,
-                 const float multiplier, const int peak, const int dither_mode) noexcept {
-    float* dither_buff = new float[2 * dstWidth];
+                 const float multiplier, const int peak, const int dither_mode, MTRand &mtr, float *dither_buff) noexcept {
     float* dc = dither_buff;
     float* dn = dither_buff + dstWidth;
     const float scale = (dither_mode - 1) + 0.5f;
     const float off = scale * 0.5f;
-    MTRand mtr;
     memset(dc, 0, dstWidth * sizeof(float));
     for (int y = 0; y < dstHeight; ++y) {
         memset(dn, 0, dstWidth * sizeof(float));
@@ -248,7 +246,6 @@ inline void dither<uint8_t>(const float * ebp, uint8_t * VS_RESTRICT dstp, const
         dn = dc;
         dc = tn;
     }
-    delete[] dither_buff;
 }
 
 template<typename T>
@@ -302,7 +299,7 @@ void func_0_c(unsigned int thread_id, int plane, const unsigned char * src_ptr, 
     T * dstp = reinterpret_cast<T *>(dst_ptr);
     const float * ebp = ebuff + ebpStride * ((height - dstHeight) / 2) + (width - dstWidth) / 2;
     if (d->dither > 0)
-        dither(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, d->multiplier, d->peak, d->dither);
+        dither(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, d->multiplier, d->peak, d->dither, *d->rngs[thread_id], d->d_buffs[thread_id]);
     else
         cast(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, d->multiplier, d->peak);
 }
@@ -361,7 +358,7 @@ void func_1_c(unsigned int thread_id, int plane, const unsigned char * src_ptr, 
     T * dstp = reinterpret_cast<T *>(dst_ptr);
     const float * ebp = ebuff + ebpStride * ((height - dstHeight) / 2) + (width - dstWidth) / 2;
     if (d->dither > 0)
-        dither(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, d->multiplier, d->peak, d->dither);
+        dither(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, d->multiplier, d->peak, d->dither, *d->rngs[thread_id], d->d_buffs[thread_id]);
     else
         cast(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, d->multiplier, d->peak);
 }
@@ -379,8 +376,8 @@ void removeMean_c(float * VS_RESTRICT dftc, const float * dftgc, const int ccnt,
 }
 
 void dither_c(const float * ebp, uint8_t * VS_RESTRICT dstp, const int dstWidth, const int dstHeight, const int dstStride, const int ebpStride,
-                 const float multiplier, const int peak, const int dither_mode) noexcept {
-    dither(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, multiplier, peak, dither_mode);
+                 const float multiplier, const int peak, const int dither_mode, MTRand &rng, float *dither_buff) noexcept {
+    dither(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, multiplier, peak, dither_mode, rng, dither_buff);
 }
 
 template void func_0_c<uint8_t>(unsigned int, int, const unsigned char *, unsigned char *, int, const DFTTestData *) noexcept;
