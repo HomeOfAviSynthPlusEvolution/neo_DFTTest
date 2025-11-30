@@ -763,12 +763,12 @@ namespace Plugin {
   const char* Description = "Neo DFTTest Deband Filter " PLUGIN_VERSION " - 2D/3D frequency domain denoiser";
 }
 
-std::vector<register_vsfilter_proc> RegisterVSFilters()
+inline std::vector<register_vsfilter_proc> RegisterVSFilters()
 {
   return std::vector<register_vsfilter_proc> { VSInterface::RegisterFilter<DFTTest> };
 }
 
-std::vector<register_avsfilter_proc> RegisterAVSFilters()
+inline std::vector<register_avsfilter_proc> RegisterAVSFilters()
 {
   return std::vector<register_avsfilter_proc> { AVSInterface::RegisterFilter<DFTTest> };
 }
