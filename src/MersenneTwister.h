@@ -61,22 +61,23 @@
 // its own MTRand object)
 
 #include <iostream>
-#include <limits.h>
-#include <stdio.h>
-#include <time.h>
-#include <math.h>
+#include <climits>
+#include <cstdio>
+#include <ctime>
+#include <cmath>
+#include <cstdint>
 
 class MTRand {
   // Data
 public:
-  typedef unsigned long uint32;  // unsigned integer type, at least 32 bits
-  typedef signed long sint32;	// signed equivalent (for minus operator without warning)
+  using uint32 = std::uint32_t;  // unsigned integer type, now fixed at 32 bits
+  using sint32 = std::int32_t;   // signed equivalent
 
-  enum { N = 624 };       // length of state vector
-  enum { SAVE = N + 1 };  // length of array for save()
+  static constexpr int N = 624;       // length of state vector
+  static constexpr int SAVE = N + 1;  // length of array for save()
 
 protected:
-  enum { M = 397 };  // period parameter
+  static constexpr int M = 397;  // period parameter
 
   uint32 state[N];   // internal state
   uint32* pNext;     // next value to get from state
@@ -95,14 +96,14 @@ public:
 
   // Access to 32-bit random numbers
   double rand();                          // real number in [0,1]
-  float randf();							// real number in [0,1]
-  double rand(const double& n);         // real number in [0,n]
+  float randf();                          // real number in [0,1]
+  double rand(const double& n);           // real number in [0,n]
   double randExc();                       // real number in [0,1)
-  double randExc(const double& n);      // real number in [0,n)
+  double randExc(const double& n);        // real number in [0,n)
   double randDblExc();                    // real number in (0,1)
-  double randDblExc(const double& n);   // real number in (0,n)
+  double randDblExc(const double& n);     // real number in (0,n)
   uint32 randInt();                       // integer in [0,2^32-1]
-  uint32 randInt(const uint32& n);      // integer in [0,n] for n < 2^32
+  uint32 randInt(const uint32& n);        // integer in [0,n] for n < 2^32
   double operator()() { return rand(); }  // same as rand()
 
   // Access to 53-bit random numbers (capacity of IEEE double precision)
@@ -265,8 +266,7 @@ inline void MTRand::seed(uint32* const bigSeed, const uint32 seedLength)
   {
     state[i] =
       state[i] ^ ((state[i - 1] ^ (state[i - 1] >> 30)) * 1664525UL);
-    state[i] += (bigSeed[j] & 0xffffffffUL) + j;
-    state[i] &= 0xffffffffUL;
+    state[i] += bigSeed[j] + j;
     ++i;  ++j;
     if (i >= N) { state[0] = state[N - 1];  i = 1; }
     if (j >= seedLength) j = 0;
@@ -276,7 +276,6 @@ inline void MTRand::seed(uint32* const bigSeed, const uint32 seedLength)
     state[i] =
       state[i] ^ ((state[i - 1] ^ (state[i - 1] >> 30)) * 1566083941UL);
     state[i] -= i;
-    state[i] &= 0xffffffffUL;
     ++i;
     if (i >= N) { state[0] = state[N - 1];  i = 1; }
   }
@@ -291,7 +290,7 @@ inline void MTRand::seed()
   // Otherwise use a hash of time() and clock() values
 
   // First try getting an array from /dev/urandom
-  FILE* urandom = fopen("/dev/urandom", "rb");
+  FILE* urandom = std::fopen("/dev/urandom", "rb");
   if (urandom)
   {
     uint32 bigSeed[N];
@@ -299,13 +298,13 @@ inline void MTRand::seed()
     int i = N;
     bool success = true;
     while (success && i--)
-      success = (fread(s++, sizeof(uint32), 1, urandom) != 0);
-    fclose(urandom);
+      success = (std::fread(s++, sizeof(uint32), 1, urandom) != 0);
+    std::fclose(urandom);
     if (success) { seed(bigSeed, N);  return; }
   }
 
   // Was not successful, so use time() and clock() instead
-  seed(hash(time(NULL), clock()));
+  seed(hash(std::time(nullptr), std::clock()));
 }
 
 
@@ -318,10 +317,10 @@ inline void MTRand::initialize(const uint32 seed)
   uint32* s = state;
   uint32* r = state;
   int i = 1;
-  *s++ = seed & 0xffffffffUL;
+  *s++ = seed;
   for (; i < N; ++i)
   {
-    *s++ = (1812433253UL * (*r ^ (*r >> 30)) + i) & 0xffffffffUL;
+    *s++ = (1812433253UL * (*r ^ (*r >> 30)) + i);
     r++;
   }
 }
@@ -352,14 +351,14 @@ inline MTRand::uint32 MTRand::hash(time_t t, clock_t c)
   static uint32 differ = 0;  // guarantee time-based seeds will change
 
   uint32 h1 = 0;
-  unsigned char* p = (unsigned char*)&t;
+  const unsigned char* p = reinterpret_cast<const unsigned char*>(&t);
   for (size_t i = 0; i < sizeof(t); ++i)
   {
     h1 *= UCHAR_MAX + 2U;
     h1 += p[i];
   }
   uint32 h2 = 0;
-  p = (unsigned char*)&c;
+  p = reinterpret_cast<const unsigned char*>(&c);
   for (size_t j = 0; j < sizeof(c); ++j)
   {
     h2 *= UCHAR_MAX + 2U;
