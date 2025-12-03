@@ -42,7 +42,6 @@ struct DFTTestData {
     float divisor, multiplier;
     int peak, barea, bvolume, ccnt, type, sbd1, ccnt2, inc;
     bool uf0b;
-    std::vector<unsigned char *> pad[4] {std::vector<unsigned char *>(), std::vector<unsigned char *>(), std::vector<unsigned char *>()};
     int padWidth[4], padHeight[4], padStride[4], padBlockSize[4], eStride[4], eHeight[4], eBatchSize[4];
     float * hw {nullptr}, * sigmas {nullptr}, * sigmas2 {nullptr}, * pmins {nullptr}, * pmaxs {nullptr};
     fftwf_complex * dftgc {nullptr};

@@ -561,6 +561,15 @@ struct DFTTest final : Filter {
       for (int h = 0; h < ep.ccnt2; h++)
         ep.sigmas[h] *= scale * (wscale2 / wscale) * alpha;
     }
+
+    const int max_potential_threads = ep.threads * fft_threads * 16; // Assume prefetch(16).
+    thread_id_store.resize(max_potential_threads, 0);
+    ep.ebuff.resize(max_potential_threads, nullptr);
+    ep.dftr.resize(max_potential_threads, nullptr);
+    ep.dftc.resize(max_potential_threads, nullptr);
+    ep.dftc2.resize(max_potential_threads, nullptr);
+    ep.rngs.resize(max_potential_threads);
+    ep.d_buffs.resize(max_potential_threads, nullptr);
   }
 
   std::vector<int> RequestReferenceFrames(int n) const override
@@ -585,35 +594,24 @@ struct DFTTest final : Filter {
       std::lock_guard<std::mutex> lock(thread_check_mutex);
       // Find empty slot
       auto it = std::find(thread_id_store.begin(), thread_id_store.end(), 0);
-      thread_id = static_cast<int>(std::distance(thread_id_store.begin(), it));
-      if (it == thread_id_store.end()) {
-        thread_id_store.push_back(1);
 
-        while (ep.ebuff.size() <= thread_id)
-          ep.ebuff.push_back((float *)_aligned_malloc(sizeof(float) * ep.eStride[0] * ep.padHeight[0], FRAME_ALIGN));
-        while (ep.dftr.size() <= thread_id)
-          ep.dftr.push_back((float *)_aligned_malloc(sizeof(float) * (((ep.bvolume + 7) | 15) + 1) * ep.threads, FRAME_ALIGN));
-        while (ep.dftc.size() <= thread_id)
-          ep.dftc.push_back((fftwf_complex*)_aligned_malloc(sizeof(fftwf_complex) * (((ep.ccnt + 7) | 15) + 1) * ep.threads, FRAME_ALIGN));
-        while (ep.dftc2.size() <= thread_id)
-          ep.dftc2.push_back((fftwf_complex*)_aligned_malloc(sizeof(fftwf_complex) * (((ep.ccnt + 7) | 15) + 1) * ep.threads, FRAME_ALIGN));
-        while (ep.process[0] == 3 && ep.pad[0].size() <= thread_id)
-          ep.pad[0].push_back((unsigned char *)_aligned_malloc(ep.padBlockSize[0] * ep.tbsize, FRAME_ALIGN));
-        while (ep.process[1] == 3 && ep.pad[1].size() <= thread_id)
-          ep.pad[1].push_back((unsigned char *)_aligned_malloc(ep.padBlockSize[1] * ep.tbsize, FRAME_ALIGN));
-        while (ep.process[2] == 3 && ep.pad[2].size() <= thread_id)
-          ep.pad[2].push_back((unsigned char *)_aligned_malloc(ep.padBlockSize[2] * ep.tbsize, FRAME_ALIGN));
-        while (ep.process[3] == 3 && ep.pad[3].size() <= thread_id)
-          ep.pad[3].push_back((unsigned char*)_aligned_malloc(ep.padBlockSize[3] * ep.tbsize, FRAME_ALIGN));
+      if (it == thread_id_store.end())
+          throw "neo_dfttest: max thread limit reached.";
+
+      thread_id = static_cast<int>(std::distance(thread_id_store.begin(), it));
+      thread_id_store[thread_id] = 1;
+
+      if (!ep.ebuff[thread_id]) {
+        ep.ebuff[thread_id] = (float*)_aligned_malloc(sizeof(float) * ep.eStride[0] * ep.padHeight[0], FRAME_ALIGN);
+        ep.dftr[thread_id] = (float*)_aligned_malloc(sizeof(float) * (((ep.bvolume + 7) | 15) + 1) * ep.threads, FRAME_ALIGN);
+        ep.dftc[thread_id] = (fftwf_complex*)_aligned_malloc(sizeof(fftwf_complex) * (((ep.ccnt + 7) | 15) + 1) * ep.threads, FRAME_ALIGN);
+        ep.dftc2[thread_id] = (fftwf_complex*)_aligned_malloc(sizeof(fftwf_complex) * (((ep.ccnt + 7) | 15) + 1) * ep.threads, FRAME_ALIGN);
         if (ep.dither > 0) {
-          while (ep.rngs.size() <= thread_id)
-            ep.rngs.push_back(std::make_unique<MTRand>());
-          while (ep.d_buffs.size() <= thread_id)
-            ep.d_buffs.push_back((float *)_aligned_malloc(sizeof(float) * 2 * ep.vi_width, FRAME_ALIGN));
+          ep.d_buffs[thread_id] = (float*)_aligned_malloc(sizeof(float) * 2 * ep.vi_width, FRAME_ALIGN);
+          if (ep.dither > 1)
+            ep.rngs[thread_id] = std::make_unique<MTRand>();
         }
       }
-      else
-        thread_id_store[thread_id] = 1;
     }
 
     auto src0 = in_frames[n];
@@ -629,7 +627,13 @@ struct DFTTest final : Filter {
         auto dst_ptr = dst.DstPointers[p];
 
         if (ep.process[p] == 3) {
-          auto pad = ep.pad[p][thread_id];
+          unsigned char *pad = (unsigned char *)_aligned_malloc(ep.padBlockSize[p] * ep.tbsize, FRAME_ALIGN);
+          if (!pad)
+            throw "pad0 allocation failed.";
+          struct AlignedDeleter {
+            void operator ()(void* p) const { _aligned_free(p); }
+          };
+          std::unique_ptr<unsigned char, AlignedDeleter> pad0_smart(pad);
           ep.copyPad(p, src_ptr, src_stride, pad, &ep);
           ep.func_0(thread_id, p, pad, dst_ptr, dst_stride, &ep);
         }
@@ -657,7 +661,14 @@ struct DFTTest final : Filter {
       auto dst_ptr = dst.DstPointers[p];
 
       if (ep.process[p] == 3) {
-        auto pad0 = ep.pad[p][thread_id];
+        unsigned char *pad0 = (unsigned char *)_aligned_malloc(ep.padBlockSize[p] * ep.tbsize, FRAME_ALIGN);
+        if (!pad0)
+          throw "pad0 allocation failed.";
+        struct AlignedDeleter {
+          void operator ()(void* p) const { _aligned_free(p); }
+        };
+        std::unique_ptr<unsigned char, AlignedDeleter> pad0_smart(pad0);
+
         for (int i = 0; i < ep.tbsize; i++) {
           int fn = i + n - pos;
           int fn_real = std::min(std::max(fn, 0), in_vi.Frames - 1);
@@ -734,14 +745,6 @@ struct DFTTest final : Filter {
     for (auto &&buf : ep.dftc)
       _aligned_free(buf);
     for (auto &&buf : ep.dftc2)
-      _aligned_free(buf);
-    for (auto &&buf : ep.pad[0])
-      _aligned_free(buf);
-    for (auto &&buf : ep.pad[1])
-      _aligned_free(buf);
-    for (auto &&buf : ep.pad[2])
-      _aligned_free(buf);
-    for (auto&& buf : ep.pad[3])
       _aligned_free(buf);
     for (auto&& buf : ep.d_buffs)
       _aligned_free(buf);
