@@ -80,13 +80,13 @@ Parameters:
 
     For example, on a 6 cores 12 threads CPU, *threads=6* paired with *prefetch(2)* comes with great efficiency; *threads=6* paired with *prefetch(6)* is likely less efficient.
 
-    Default: 4. Max: 16.
+    Default: 4 for AviSynth+, 1 for VapourSynth. Max: 16.
 
 - *fft_threads*
 
     Number of FFTW multi threads.
 
-    Default: 2.
+    Default: 2 for AviSynth+, 1 for VapourSynth.
 
 - *opt*
 

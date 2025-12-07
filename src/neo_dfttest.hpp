@@ -69,6 +69,29 @@ struct DFTTest final : Filter {
       Param {"fft_threads", Integer}
     };
   }
+  int SetCacheHints(int cachehints, int frame_range) override
+  {
+    if (cachehints == CACHE_GET_MTMODE)
+      return AVSMode();
+    if (cachehints == CACHE_INFORM_NUM_THREADS) {
+      int nThreads = frame_range;
+
+      if (nThreads > static_cast<int>(thread_id_store.size())) {
+        std::lock_guard<std::mutex> lock(thread_check_mutex);
+
+        thread_id_store.resize(nThreads, 0);
+        ep.ebuff.resize(nThreads, nullptr);
+        ep.dftr.resize(nThreads, nullptr);
+        ep.dftc.resize(nThreads, nullptr);
+        ep.dftc2.resize(nThreads, nullptr);
+        ep.rngs.resize(nThreads);
+        ep.d_buffs.resize(nThreads, nullptr);
+      }
+      return 0;
+    }
+
+    return 0;
+  }
   void Initialize(InDelegator* in, DSVideoInfo in_vi, FetchFrameFunctor* fetch_frame) override
   {
     // in_vi and fetch_frame are useless for source filter
@@ -87,6 +110,10 @@ struct DFTTest final : Filter {
     ep.vi_height = in_vi.Height;
     ep.vi_subSamplingH = in_vi.Format.SSH;
     ep.vi_subSamplingW = in_vi.Format.SSW;
+    if (!in->GetEnv()) {
+      ep.threads = 1;
+      fft_threads = 1;
+    }
 
     int ftype = 0;
     float sigma = 8.0f, sigma2 = 8.0f;

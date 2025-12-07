@@ -56,6 +56,7 @@
 // 20250415  V11.1 Fix AVS_Value 64 bit data member declaration for 64-bit non Intel (other than X86_X64) systems.
 // 20250601  V12 Global lock aquire and release: AcquireGlobalLock, ReleaseGlobalLock
 //               New ApplyMessageEx
+// 20251127  V12 CACHE_INFORM_NUM_THREADS CachePolicyHint enum to inform the filter about the number of threads by SetCacheHints
 
 // http://avisynth.nl
 
@@ -1240,6 +1241,9 @@ enum CachePolicyHint {
   // By returning IS_MTGUARD_ANS to IS_MTGUARD_REQ, we tell the caller we are an mt guard
   CACHE_IS_MTGUARD_REQ,
   CACHE_IS_MTGUARD_ANS,
+
+  // v12
+  CACHE_INFORM_NUM_THREADS, // Allows a filter to receive the number of prefetch threads via SetCacheHints
 
   CACHE_AVSPLUS_CUDA_CONSTANTS = 600,
 
