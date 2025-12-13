@@ -1,6 +1,7 @@
 #define _USE_MATH_DEFINES
 #include <cmath>
 #include <cstdio>
+#include <type_traits>
 
 #include "dft_common.h"
 #include "MersenneTwister.h"
