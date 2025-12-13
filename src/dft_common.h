@@ -58,9 +58,9 @@ struct DFTTestData {
     std::vector<fftwf_complex *> dftc, dftc2;
 
     void (*copyPad)(int plane, const unsigned char *, int, unsigned char *, const DFTTestData *) noexcept;
-    void (*filterCoeffs)(float *, const float *, const int, const float *, const float *, const float *) noexcept;
-    void (*func_0)(unsigned int thread_id, int plane, const unsigned char *, unsigned char *, int, const DFTTestData *) noexcept;
-    void (*func_1)(unsigned int thread_id, int plane, const unsigned char *, unsigned char *, int, const int, const DFTTestData *) noexcept;
+    void (*filterCoeffs)(float *, const float *, const int, const float *, const float *, const float *);
+    void (*func_0)(unsigned int thread_id, int plane, const unsigned char *, unsigned char *, int, const DFTTestData *);
+    void (*func_1)(unsigned int thread_id, int plane, const unsigned char *, unsigned char *, int, const int, const DFTTestData *);
 };
 
 struct NPInfo {

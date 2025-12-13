@@ -36,6 +36,10 @@ namespace SSE2 {
 namespace AVX2 {
     #include "../src/core_AVX2.cpp"
 }
+
+// Highway functions are dynamically dispatched, so we don't need to include the source
+// or set up static compilation targets. We'll get the function pointers at runtime.
+
 void dither_c(float const*, unsigned char*, int, int, int, int, float, int, int, MTRand&, float*) noexcept {};
 
 // Helper class for memory alignment
@@ -120,6 +124,7 @@ TYPED_TEST(Proc0Test, MatchesReference) {
     AlignedBuffer<float> d_ref(p1 * h);
     AlignedBuffer<float> d_sse2(p1 * h);
     AlignedBuffer<float> d_avx2(p1 * h);
+    AlignedBuffer<float> d_hwy_avx2(p1 * h);
 
     fill_random(s0.data(), s0.size(), 0, 100);
     fill_random(s1.data(), s1.size(), 0.0, 1.0);
@@ -128,11 +133,22 @@ TYPED_TEST(Proc0Test, MatchesReference) {
     Ref::proc0(s0.data(), s1.data(), d_ref.data(), p0, p1, divisor);
     SSE2::proc0(s0.data(), s1.data(), d_sse2.data(), p0, p1, divisor);
     AVX2::proc0(s0.data(), s1.data(), d_avx2.data(), p0, p1, divisor);
+    if constexpr (std::is_same_v<T, uint8_t>) {
+        auto proc0_hwy = neo_dfttest::GetHighwayProc0_u8();
+        proc0_hwy(s0.data(), s1.data(), d_hwy_avx2.data(), p0, p1, divisor);
+    } else if constexpr (std::is_same_v<T, uint16_t>) {
+        auto proc0_hwy = neo_dfttest::GetHighwayProc0_u16();
+        proc0_hwy(s0.data(), s1.data(), d_hwy_avx2.data(), p0, p1, divisor);
+    } else { // float
+        auto proc0_hwy = neo_dfttest::GetHighwayProc0_f32();
+        proc0_hwy(s0.data(), s1.data(), d_hwy_avx2.data(), p0, p1, divisor);
+    }
 
     // Verify
     for (size_t i = 0; i < d_ref.size(); ++i) {
         ASSERT_NEAR(d_ref.data()[i], d_sse2.data()[i], 1e-5) << "SSE2 mismatch at index " << i;
         ASSERT_NEAR(d_ref.data()[i], d_avx2.data()[i], 1e-5) << "AVX2 mismatch at index " << i;
+        ASSERT_NEAR(d_ref.data()[i], d_hwy_avx2.data()[i], 1e-5) << "HWY AVX2 mismatch at index " << i;
     }
 }
 
@@ -148,6 +164,7 @@ TEST(Proc1Test, MatchesReference) {
     AlignedBuffer<float> d_ref(p1 * h);
     AlignedBuffer<float> d_sse2(p1 * h);
     AlignedBuffer<float> d_avx2(p1 * h);
+    AlignedBuffer<float> d_hwy_avx2(p1 * h);
 
     fill_random(s0.data(), s0.size(), -10.0, 10.0);
     fill_random(s1.data(), s1.size(), 0.0, 1.0);
@@ -156,14 +173,18 @@ TEST(Proc1Test, MatchesReference) {
     // Copy initial state to other buffers
     std::copy(d_ref.data(), d_ref.data() + d_ref.size(), d_sse2.data());
     std::copy(d_ref.data(), d_ref.data() + d_ref.size(), d_avx2.data());
+    std::copy(d_ref.data(), d_ref.data() + d_ref.size(), d_hwy_avx2.data());
 
     Ref::proc1(s0.data(), s1.data(), d_ref.data(), p0, p1);
     SSE2::proc1(s0.data(), s1.data(), d_sse2.data(), p0, p1);
     AVX2::proc1(s0.data(), s1.data(), d_avx2.data(), p0, p1);
+    auto proc1_hwy = neo_dfttest::GetHighwayProc1();
+    proc1_hwy(s0.data(), s1.data(), d_hwy_avx2.data(), p0, p1);
 
     for (size_t i = 0; i < d_ref.size(); ++i) {
         ASSERT_NEAR(d_ref.data()[i], d_sse2.data()[i], 1e-4) << "SSE2 mismatch at index " << i;
         ASSERT_NEAR(d_ref.data()[i], d_avx2.data()[i], 1e-4) << "AVX2 mismatch at index " << i;
+        ASSERT_NEAR(d_ref.data()[i], d_hwy_avx2.data()[i], 1e-4) << "HWY AVX2 mismatch at index " << i;
     }
 }
 
@@ -174,28 +195,35 @@ TEST(RemoveMeanTest, MatchesReference) {
     AlignedBuffer<float> dftc_ref(ccnt);
     AlignedBuffer<float> dftc_sse2(ccnt);
     AlignedBuffer<float> dftc_avx2(ccnt);
+    AlignedBuffer<float> dftc_hwy_avx2(ccnt);
 
     AlignedBuffer<float> dftgc(ccnt);
     AlignedBuffer<float> dftc2_ref(ccnt);
     AlignedBuffer<float> dftc2_sse2(ccnt);
     AlignedBuffer<float> dftc2_avx2(ccnt);
+    AlignedBuffer<float> dftc2_hwy_avx2(ccnt);
 
     fill_random(dftc_ref.data(), ccnt, -100.0, 100.0);
     fill_random(dftgc.data(), ccnt, 1.0, 10.0); // Avoid division by zero
 
     std::copy(dftc_ref.data(), dftc_ref.data() + ccnt, dftc_sse2.data());
     std::copy(dftc_ref.data(), dftc_ref.data() + ccnt, dftc_avx2.data());
+    std::copy(dftc_ref.data(), dftc_ref.data() + ccnt, dftc_hwy_avx2.data());
 
     Ref::removeMean(dftc_ref.data(), dftgc.data(), ccnt, dftc2_ref.data());
     SSE2::removeMean(dftc_sse2.data(), dftgc.data(), ccnt, dftc2_sse2.data());
     AVX2::removeMean(dftc_avx2.data(), dftgc.data(), ccnt, dftc2_avx2.data());
+    auto removeMean_hwy = neo_dfttest::GetHighwayRemoveMean();
+    removeMean_hwy(dftc_hwy_avx2.data(), dftgc.data(), ccnt, dftc2_hwy_avx2.data());
 
     for (int i = 0; i < ccnt; ++i) {
         ASSERT_NEAR(dftc_ref.data()[i], dftc_sse2.data()[i], 1e-4) << "dftc SSE2 mismatch at " << i;
         ASSERT_NEAR(dftc_ref.data()[i], dftc_avx2.data()[i], 1e-4) << "dftc AVX2 mismatch at " << i;
+        ASSERT_NEAR(dftc_ref.data()[i], dftc_hwy_avx2.data()[i], 1e-4) << "dftc HWY AVX2 mismatch at " << i;
 
         ASSERT_NEAR(dftc2_ref.data()[i], dftc2_sse2.data()[i], 1e-4) << "dftc2 SSE2 mismatch at " << i;
         ASSERT_NEAR(dftc2_ref.data()[i], dftc2_avx2.data()[i], 1e-4) << "dftc2 AVX2 mismatch at " << i;
+        ASSERT_NEAR(dftc2_ref.data()[i], dftc2_hwy_avx2.data()[i], 1e-4) << "dftc2 HWY AVX2 mismatch at " << i;
     }
 }
 
@@ -206,6 +234,7 @@ TEST(AddMeanTest, MatchesReference) {
     AlignedBuffer<float> dftc_ref(ccnt);
     AlignedBuffer<float> dftc_sse2(ccnt);
     AlignedBuffer<float> dftc_avx2(ccnt);
+    AlignedBuffer<float> dftc_hwy_avx2(ccnt);
 
     AlignedBuffer<float> dftc2(ccnt);
 
@@ -214,14 +243,18 @@ TEST(AddMeanTest, MatchesReference) {
 
     std::copy(dftc_ref.data(), dftc_ref.data() + ccnt, dftc_sse2.data());
     std::copy(dftc_ref.data(), dftc_ref.data() + ccnt, dftc_avx2.data());
+    std::copy(dftc_ref.data(), dftc_ref.data() + ccnt, dftc_hwy_avx2.data());
 
     Ref::addMean(dftc_ref.data(), ccnt, dftc2.data());
     SSE2::addMean(dftc_sse2.data(), ccnt, dftc2.data());
     AVX2::addMean(dftc_avx2.data(), ccnt, dftc2.data());
+    auto addMean_hwy = neo_dfttest::GetHighwayAddMean();
+    addMean_hwy(dftc_hwy_avx2.data(), ccnt, dftc2.data());
 
     for (int i = 0; i < ccnt; ++i) {
         ASSERT_NEAR(dftc_ref.data()[i], dftc_sse2.data()[i], 1e-4) << "SSE2 mismatch at " << i;
         ASSERT_NEAR(dftc_ref.data()[i], dftc_avx2.data()[i], 1e-4) << "AVX2 mismatch at " << i;
+        ASSERT_NEAR(dftc_ref.data()[i], dftc_hwy_avx2.data()[i], 1e-4) << "HWY AVX2 mismatch at " << i;
     }
 }
 
@@ -248,6 +281,7 @@ TYPED_TEST(FilterTest, MatchesReference) {
     AlignedBuffer<float> dftc_ref(ccnt);
     AlignedBuffer<float> dftc_sse2(ccnt);
     AlignedBuffer<float> dftc_avx2(ccnt);
+    AlignedBuffer<float> dftc_hwy_avx2(ccnt);
 
     AlignedBuffer<float> sigmas(ccnt);
     AlignedBuffer<float> sigmas2(ccnt);
@@ -267,14 +301,28 @@ TYPED_TEST(FilterTest, MatchesReference) {
 
     std::copy(dftc_ref.data(), dftc_ref.data() + ccnt, dftc_sse2.data());
     std::copy(dftc_ref.data(), dftc_ref.data() + ccnt, dftc_avx2.data());
+    std::copy(dftc_ref.data(), dftc_ref.data() + ccnt, dftc_hwy_avx2.data());
 
     Ref::filter_c<type>(dftc_ref.data(), sigmas.data(), ccnt, pmin.data(), pmax.data(), sigmas2.data());
     SSE2::filter_sse2<type>(dftc_sse2.data(), sigmas.data(), ccnt, pmin.data(), pmax.data(), sigmas2.data());
     AVX2::filter_avx2<type>(dftc_avx2.data(), sigmas.data(), ccnt, pmin.data(), pmax.data(), sigmas2.data());
+    neo_dfttest::FilterFunc filter_hwy = nullptr;
+    if constexpr (type == 0) filter_hwy = neo_dfttest::GetHighwayFilter_Type0();
+    else if constexpr (type == 1) filter_hwy = neo_dfttest::GetHighwayFilter_Type1();
+    else if constexpr (type == 2) filter_hwy = neo_dfttest::GetHighwayFilter_Type2();
+    else if constexpr (type == 3) filter_hwy = neo_dfttest::GetHighwayFilter_Type3();
+    else if constexpr (type == 4) filter_hwy = neo_dfttest::GetHighwayFilter_Type4();
+    else if constexpr (type == 5) filter_hwy = neo_dfttest::GetHighwayFilter_Type5();
+    else if constexpr (type == 6) filter_hwy = neo_dfttest::GetHighwayFilter_Type6();
+
+    if (filter_hwy) {
+        filter_hwy(dftc_hwy_avx2.data(), sigmas.data(), ccnt, pmin.data(), pmax.data(), sigmas2.data());
+    }
 
     for (int i = 0; i < ccnt; ++i) {
         ASSERT_NEAR(dftc_ref.data()[i], dftc_sse2.data()[i], 1e-4) << "SSE2 mismatch at " << i;
         ASSERT_NEAR(dftc_ref.data()[i], dftc_avx2.data()[i], 1e-4) << "AVX2 mismatch at " << i;
+        ASSERT_NEAR(dftc_ref.data()[i], dftc_hwy_avx2.data()[i], 1e-4) << "HWY AVX2 mismatch at " << i;
     }
 }
 
@@ -304,20 +352,33 @@ TYPED_TEST(CastTest, MatchesReference) {
     AlignedBuffer<T> dst_ref(dstStride * height);
     AlignedBuffer<T> dst_sse2(dstStride * height);
     AlignedBuffer<T> dst_avx2(dstStride * height);
+    AlignedBuffer<T> dst_hwy_avx2(dstStride * height);
 
     fill_random(ebp.data(), ebp.size(), 0.0, 255.0);
 
     Ref::cast(ebp.data(), dst_ref.data(), width, height, dstStride, ebpStride, multiplier, peak);
     SSE2::cast(ebp.data(), dst_sse2.data(), width, height, dstStride, ebpStride, multiplier, peak);
     AVX2::cast(ebp.data(), dst_avx2.data(), width, height, dstStride, ebpStride, multiplier, peak);
+    if constexpr (std::is_same_v<T, uint8_t>) {
+        auto cast_hwy = neo_dfttest::GetHighwayCast_u8();
+        cast_hwy(ebp.data(), dst_hwy_avx2.data(), width, height, dstStride, ebpStride, multiplier, peak);
+    } else if constexpr (std::is_same_v<T, uint16_t>) {
+        auto cast_hwy = neo_dfttest::GetHighwayCast_u16();
+        cast_hwy(ebp.data(), dst_hwy_avx2.data(), width, height, dstStride, ebpStride, multiplier, peak);
+    } else { // float
+        auto cast_hwy = neo_dfttest::GetHighwayCast_f32();
+        cast_hwy(ebp.data(), dst_hwy_avx2.data(), width, height, dstStride, ebpStride, multiplier, peak);
+    }
 
     for (size_t i = 0; i < dst_ref.size(); ++i) {
         if constexpr (std::is_floating_point_v<T>) {
              ASSERT_NEAR(dst_ref.data()[i], dst_sse2.data()[i], 1e-5) << "SSE2 mismatch at " << i;
              ASSERT_NEAR(dst_ref.data()[i], dst_avx2.data()[i], 1e-5) << "AVX2 mismatch at " << i;
+             ASSERT_NEAR(dst_ref.data()[i], dst_hwy_avx2.data()[i], 1e-5) << "HWY AVX2 mismatch at " << i;
         } else {
              ASSERT_EQ(dst_ref.data()[i], dst_sse2.data()[i]) << "SSE2 mismatch at " << i;
              ASSERT_EQ(dst_ref.data()[i], dst_avx2.data()[i]) << "AVX2 mismatch at " << i;
+             ASSERT_EQ(dst_ref.data()[i], dst_hwy_avx2.data()[i]) << "HWY AVX2 mismatch at " << i;
         }
     }
 }

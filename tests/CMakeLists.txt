@@ -12,13 +12,21 @@ FetchContent_MakeAvailable(googletest)
 
 enable_testing()
 
+FetchContent_Declare(
+  highway
+  GIT_REPOSITORY https://github.com/google/highway.git
+  GIT_TAG 1.3.0
+)
+FetchContent_MakeAvailable(highway)
+
 add_executable(core_internal_tests
   test_main.cpp
   test_core_internal.cpp
+  ../src/core_hwy.cpp
 )
 
 target_link_libraries(core_internal_tests
-  GTest::gtest_main
+  GTest::gtest_main hwy
 )
 
 # Relative to tests directory
