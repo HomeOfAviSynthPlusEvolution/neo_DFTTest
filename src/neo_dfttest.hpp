@@ -636,7 +636,7 @@ struct DFTTest final : Filter {
         if (ep.dither > 0) {
           ep.d_buffs[thread_id] = (float*)_aligned_malloc(sizeof(float) * 2 * ep.vi_width, FRAME_ALIGN);
           if (ep.dither > 1)
-            ep.rngs[thread_id] = std::make_unique<MTRand>();
+            ep.rngs[thread_id] = std::make_unique<std::mt19937>(std::random_device{}());
         }
       }
     }
