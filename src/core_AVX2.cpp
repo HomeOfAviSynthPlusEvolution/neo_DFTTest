@@ -256,7 +256,7 @@ void cast(const float * ebp, float * dstp, const int dstWidth, const int dstHeig
 
 template<typename T>
 static inline void dither(const float * ebp, T * VS_RESTRICT dstp, const int dstWidth, const int dstHeight, const int dstStride, const int ebpStride,
-                 const float multiplier, const int peak, const int dither_mode, MTRand& rng, float *dither_buff) noexcept {
+                 const float multiplier, const int peak, const int dither_mode, std::mt19937& rng, float *dither_buff) noexcept {
     if constexpr (std::is_same_v<T, uint8_t>) {
         dither_c(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, multiplier, peak, dither_mode, rng, dither_buff);
     } else {
