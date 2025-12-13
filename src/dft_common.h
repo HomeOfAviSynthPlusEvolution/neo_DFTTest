@@ -1,3 +1,6 @@
+#ifndef DFT_COMMON_H
+#define DFT_COMMON_H
+
 #include <cstdint>
 #include <algorithm>
 #include <memory>
@@ -74,3 +77,5 @@ template<typename T>
 void proc0_c(const T * s0, const float * s1, float * VS_RESTRICT d, const int p0, const int p1, const float divisor) noexcept;
 void dither_c(const float * ebp, uint8_t * VS_RESTRICT dstp, const int dstWidth, const int dstHeight, const int dstStride, const int ebpStride,
                  const float multiplier, const int peak, const int dither_mode, MTRand &rng, float *dither_buff) noexcept;
+
+#endif
