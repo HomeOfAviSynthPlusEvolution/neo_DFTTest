@@ -9,6 +9,7 @@ add_library(neo-dfttest SHARED
   src/core_AVX2.cpp
   src/core_C.cpp
   src/core_SSE2.cpp
+  src/core_hwy.cpp
   src/dft_common.h
   src/fftwlite.h
   src/neo_dfttest.hpp
@@ -16,6 +17,14 @@ add_library(neo-dfttest SHARED
 set_property(TARGET neo-dfttest PROPERTY CXX_STANDARD 17)
 option(ENABLE_PAR "Enable C++17 Parallel Execution" ON)
 add_compile_definitions(VS_TARGET_CPU_X86 _CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_DEPRECATE)
+
+include(FetchContent)
+FetchContent_Declare(
+  highway
+  GIT_REPOSITORY https://github.com/google/highway.git
+  GIT_TAG 1.3.0
+)
+FetchContent_MakeAvailable(highway)
 
 find_package(Git REQUIRED)
 execute_process(COMMAND ${GIT_EXECUTABLE} describe --first-parent --tags --always OUTPUT_VARIABLE GIT_REPO_VERSION)
@@ -54,6 +63,7 @@ endif()
 
 include_directories(.)
 include_directories(include/dualsynth)
+include_directories(${highway_SOURCE_DIR})
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
   set_source_files_properties(src/core_SSE2.cpp PROPERTIES COMPILE_FLAGS "/arch:SSE2")
@@ -91,6 +101,8 @@ endif()
 if (NOT WIN32)
   target_link_libraries(neo-dfttest dl)
 endif()
+
+target_link_libraries(neo-dfttest PRIVATE hwy)
 
 add_custom_command(
   TARGET neo-dfttest POST_BUILD

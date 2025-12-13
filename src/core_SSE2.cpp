@@ -1,5 +1,6 @@
 #ifdef VS_TARGET_CPU_X86
 #include "core.h"
+#include <type_traits> // Required for std::is_same_v
 
 #include "vectorclass/vectormath_exp.h"
 

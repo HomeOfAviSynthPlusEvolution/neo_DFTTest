@@ -4,6 +4,7 @@
 #endif
 
 #include "core.h"
+#include <type_traits> // Required for std::is_same_v
 
 #include "vectorclass/vectormath_exp.h"
 

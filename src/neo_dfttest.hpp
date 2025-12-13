@@ -298,7 +298,7 @@ struct DFTTest final : Filter {
     if (ssystem < 0 || ssystem > 1)
       throw "ssystem must be 0 or 1";
 
-    if (opt < 0 || opt > 3)
+    if (opt != 8 && (opt < 0 || opt > 3))
       throw "opt must be 0, 1, 2, or 3";
 
     if (ep.threads <= 0)

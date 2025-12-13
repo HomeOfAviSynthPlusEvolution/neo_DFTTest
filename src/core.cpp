@@ -278,7 +278,11 @@ void selectFunctions(const unsigned ftype, const unsigned opt, DFTTestData * d) 
     #ifdef VS_TARGET_CPU_X86
         const int iset = instrset_detect();
 
-        if ((opt == 0 && iset >= 8) || opt == 3) {
+        if (opt == 8) {
+            d->filterCoeffs = neo_dfttest::GetHighwayFilter(ftype, d->f0beta);
+            neo_dfttest::GetHighwayFunc0(d);
+            neo_dfttest::GetHighwayFunc1(d);
+        } else if ((opt == 0 && iset >= 8) || opt == 3) {
             if (ftype == 0) {
                 if (std::abs(d->f0beta - 1.0f) < 0.00005f)
                     d->filterCoeffs = filter_avx2<0>;
