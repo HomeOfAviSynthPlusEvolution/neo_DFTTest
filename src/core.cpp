@@ -275,14 +275,16 @@ void selectFunctions(const unsigned ftype, const unsigned opt, DFTTestData * d) 
         d->func_1 = func_1_c<float>;
     }
 
+    if (opt == 8) { // opt-in highway through opt=8
+        d->filterCoeffs = neo_dfttest::GetHighwayFilter(ftype, d->f0beta);
+        neo_dfttest::GetHighwayFunc0(d);
+        neo_dfttest::GetHighwayFunc1(d);
+    }
     #ifdef VS_TARGET_CPU_X86
+    else {
         const int iset = instrset_detect();
 
-        if (opt == 8) {
-            d->filterCoeffs = neo_dfttest::GetHighwayFilter(ftype, d->f0beta);
-            neo_dfttest::GetHighwayFunc0(d);
-            neo_dfttest::GetHighwayFunc1(d);
-        } else if ((opt == 0 && iset >= 8) || opt == 3) {
+        if ((opt == 0 && iset >= 8) || opt == 3) {
             if (ftype == 0) {
                 if (std::abs(d->f0beta - 1.0f) < 0.00005f)
                     d->filterCoeffs = filter_avx2<0>;
@@ -339,5 +341,6 @@ void selectFunctions(const unsigned ftype, const unsigned opt, DFTTestData * d) 
                 d->func_1 = func_1_sse2<float>;
             }
         }
+    }
     #endif
 }

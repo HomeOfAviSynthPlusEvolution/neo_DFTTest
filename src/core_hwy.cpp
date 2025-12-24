@@ -91,9 +91,9 @@ inline void Proc1Partial(const float* _s0, const float* _s1, float* _d, const in
     for (int u = 0; u < p0; u++) {
         size_t v = 0;
         for (; v + N <= static_cast<size_t>(p0); v += N) {
-            const auto s0_vec = hn::LoadU(d_f, _s0 + v);
-            const auto s1_vec = hn::LoadU(d_f, _s1 + v);
-            const auto d_vec = hn::LoadU(d_f, _d + v);
+            const auto s0_vec = hn::Load(d_f, _s0 + v);
+            const auto s1_vec = hn::Load(d_f, _s1 + v);
+            const auto d_vec = hn::Load(d_f, _d + v);
             hn::StoreU(hn::MulAdd(s0_vec, s1_vec, d_vec), d_f, _d + v);
         }
 
@@ -145,11 +145,24 @@ void Filter(float * dftc, const float * _sigmas, const int ccnt, const float * _
         auto dummy = hn::Undefined(d_f);
         hn::LoadInterleaved2(d_f, _sigmas + h, sigmas, dummy);
 
-        if constexpr (type == 0) {
+        if constexpr (type == 0 || type == 5 || type == 6) {
             auto num = hn::Sub(psd, sigmas);
             auto den = hn::Add(psd, epsilon);
             auto rcp = RcpNr(d_f, den);
-            auto mult = hn::Max(zero, hn::Mul(num, rcp));
+            auto base = hn::Max(zero, hn::Mul(num, rcp));
+            decltype(base) mult;
+            if constexpr (type == 0) {
+                // power of 1
+                mult = base;
+            }
+            if constexpr (type == 5) {
+                // power of beta
+                mult = hn::Exp(d_f, hn::Mul(hn::Log(d_f, base), beta));
+            }
+            else if constexpr (type == 6) {
+                // power of 1/2
+                mult = hn::Sqrt(base);
+            }
             
             r = hn::Mul(r, mult);
             i = hn::Mul(i, mult);
@@ -189,28 +202,6 @@ void Filter(float * dftc, const float * _sigmas, const int ccnt, const float * _
             r = hn::Mul(r, mult);
             i = hn::Mul(i, mult);
         }
-        else if constexpr (type == 5) {
-            auto num = hn::Sub(psd, sigmas);
-            auto den = hn::Add(psd, epsilon);
-            auto rcp = RcpNr(d_f, den);
-            auto base = hn::Max(zero, hn::Mul(num, rcp));
-            
-            //  auto mult = hn::Pow(d_f, base, beta); // Use hwy::contrib::math::Pow
-            auto mult = hn::Exp(d_f, hn::Mul(hn::Log(d_f, base), beta));
-
-            r = hn::Mul(r, mult);
-            i = hn::Mul(i, mult);
-        }
-        else if constexpr (type == 6) {
-            auto num = hn::Sub(psd, sigmas);
-            auto den = hn::Add(psd, epsilon);
-            auto rcp = RcpNr(d_f, den);
-            auto val = hn::Max(zero, hn::Mul(num, rcp));
-            auto mult = hn::Sqrt(val);
-
-            r = hn::Mul(r, mult);
-            i = hn::Mul(i, mult);
-        }
 
         hn::StoreInterleaved2(r, i, d_f, dftc + h);
     }
@@ -230,11 +221,11 @@ void Cast(const float * ebp, T * dstp, const int dstWidth, const int dstHeight, 
     for (int y = 0; y < dstHeight; y++) {
         int x = 0;
         for (; x + N <= dstWidth; x += N) { // Iterate aligned blocks
-            auto v = hn::LoadU(d_f, ebp + x);
+            auto v = hn::Load(d_f, ebp + x);
             
             if constexpr (std::is_same_v<T, float>) {
                 auto val = hn::Mul(v, hn::Set(d_f, 1.0f/255.0f));
-                hn::StoreU(val, d_f, reinterpret_cast<float*>(dstp) + x);
+                hn::Store(val, d_f, reinterpret_cast<float*>(dstp) + x);
             } else if constexpr (std::is_same_v<T, uint8_t>) {
                 auto v_rounded = hn::Add(v, hn::Set(d_f, 0.5f));
                 auto v_i32 = hn::ConvertTo(d_i32, v_rounded);
@@ -299,14 +290,14 @@ void RemoveMean(float * dftc, const float * dftgc, const int ccnt, float * dftc2
     const auto gf = hn::Set(d_f, gf_scalar);
 
     for (size_t h = 0; h < ccnt; h += N) {
-        const auto v_dftgc = hn::LoadU(d_f, dftgc + h);
-        const auto v_dftc = hn::LoadU(d_f, dftc + h);
+        const auto v_dftgc = hn::Load(d_f, dftgc + h);
+        const auto v_dftc = hn::Load(d_f, dftc + h);
         
         const auto v_dftc2 = hn::Mul(gf, v_dftgc);
-        hn::StoreU(v_dftc2, d_f, dftc2 + h);
+        hn::Store(v_dftc2, d_f, dftc2 + h);
 
         const auto v_new_dftc = hn::Sub(v_dftc, v_dftc2);
-        hn::StoreU(v_new_dftc, d_f, dftc + h);
+        hn::Store(v_new_dftc, d_f, dftc + h);
     }
 }
 
@@ -316,9 +307,9 @@ void AddMean(float * dftc, const int ccnt, const float * dftc2) {
     constexpr D d_f;
     const size_t N = hn::Lanes(d_f);
     for (size_t h = 0; h < ccnt; h += N) {
-        auto v1 = hn::LoadU(d_f, dftc + h);
-        auto v2 = hn::LoadU(d_f, dftc2 + h);
-        hn::StoreU(hn::Add(v1, v2), d_f, dftc + h);
+        auto v1 = hn::Load(d_f, dftc + h);
+        auto v2 = hn::Load(d_f, dftc2 + h);
+        hn::Store(hn::Add(v1, v2), d_f, dftc + h);
     }
 }
 
