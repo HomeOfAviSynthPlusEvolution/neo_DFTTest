@@ -212,24 +212,25 @@ void cast(const float * ebp, float * VS_RESTRICT dstp, const int dstWidth, const
 
 template<typename T>
 static inline void dither(const float * ebp, T * VS_RESTRICT dstp, const int dstWidth, const int dstHeight, const int dstStride, const int ebpStride,
-                 const float multiplier, const int peak, const int dither_mode, MTRand &rng, float *dither_buff) noexcept {
+                 const float multiplier, const int peak, const int dither_mode, std::mt19937 &rng, float *dither_buff) noexcept {
     cast(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, multiplier, peak);
 }
 
 template<>
 inline void dither<uint8_t>(const float * ebp, uint8_t * VS_RESTRICT dstp, const int dstWidth, const int dstHeight, const int dstStride, const int ebpStride,
-                 const float multiplier, const int peak, const int dither_mode, MTRand &mtr, float *dither_buff) noexcept {
+                 const float multiplier, const int peak, const int dither_mode, std::mt19937 &rng, float *dither_buff) noexcept {
     float* dc = dither_buff;
     float* dn = dither_buff + dstWidth;
     const float scale = (dither_mode - 1) + 0.5f;
     const float off = scale * 0.5f;
+    std::uniform_real_distribution<float> dist(0.0f, 1.0f);
     memset(dc, 0, dstWidth * sizeof(float));
     for (int y = 0; y < dstHeight; ++y) {
         memset(dn, 0, dstWidth * sizeof(float));
         for (int x = 0; x < dstWidth; ++x) {
             const int v = dither_mode == 1 ?
                 (int)(ebp[x] + dc[x] + 0.5f) :
-                (int)(ebp[x] + mtr.randf() * scale - off + dc[x] + 0.5f);
+                (int)(ebp[x] + dist(rng) * scale - off + dc[x] + 0.5f);
             dstp[x] = std::min(std::max(v, 0), 255);
             const float qerror = ebp[x] - dstp[x];
             if (x != 0)
@@ -368,7 +369,7 @@ void removeMean_c(float * VS_RESTRICT dftc, const float * dftgc, const int ccnt,
 }
 
 void dither_c(const float * ebp, uint8_t * VS_RESTRICT dstp, const int dstWidth, const int dstHeight, const int dstStride, const int ebpStride,
-                 const float multiplier, const int peak, const int dither_mode, MTRand &rng, float *dither_buff) noexcept {
+                 const float multiplier, const int peak, const int dither_mode, std::mt19937 &rng, float *dither_buff) noexcept {
     dither(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, multiplier, peak, dither_mode, rng, dither_buff);
 }
 

@@ -4,10 +4,10 @@
 #define _USE_MATH_DEFINES
 #include <cmath>
 #include <cstdio>
+#include <random>
 #include <type_traits>
 
 #include "dft_common.h"
-#include "MersenneTwister.h"
 
 #ifdef VS_TARGET_CPU_X86
 #include "vectorclass/vectorclass.h"

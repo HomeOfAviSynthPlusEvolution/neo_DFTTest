@@ -6,6 +6,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <random>
 
 #ifdef HAS_EXECUTION
   #include <execution>
@@ -17,8 +18,6 @@
 
 #include <VSHelper.h>
 #include "fftwlite.h"
-
-#include "MersenneTwister.h"
 
 #ifndef _WIN32
   #define _aligned_malloc(a,b) aligned_alloc(b,a)
@@ -51,7 +50,7 @@ struct DFTTestData {
     fftwf_plan ft {nullptr}, fti {nullptr};
 
     std::vector<float*> d_buffs;
-    std::vector < std::unique_ptr<MTRand>> rngs;
+    std::vector<std::unique_ptr<std::mt19937>> rngs;
 
     std::vector<float *> ebuff;
     std::vector<float *> dftr;
@@ -76,6 +75,6 @@ void removeMean_c(float * VS_RESTRICT dftc, const float * dftgc, const int ccnt,
 template<typename T>
 void proc0_c(const T * s0, const float * s1, float * VS_RESTRICT d, const int p0, const int p1, const float divisor) noexcept;
 void dither_c(const float * ebp, uint8_t * VS_RESTRICT dstp, const int dstWidth, const int dstHeight, const int dstStride, const int ebpStride,
-                 const float multiplier, const int peak, const int dither_mode, MTRand &rng, float *dither_buff) noexcept;
+                 const float multiplier, const int peak, const int dither_mode, std::mt19937 &rng, float *dither_buff) noexcept;
 
 #endif
