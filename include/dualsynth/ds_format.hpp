@@ -51,6 +51,8 @@ struct DSFormat
     IsFloat = vi.SampleType() == SAMPLE_FLOAT;
     IsInteger = !IsFloat;
     Planes = vi.NumComponents();
+    BitsPerSample = vi.BitsPerComponent();
+    BytesPerSample = vi.ComponentSize();
 
     if (IsFamilyYUV && Planes > 1) {
       SSW = vi.GetPlaneWidthSubsampling(PLANAR_U);
