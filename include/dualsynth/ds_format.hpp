@@ -48,7 +48,7 @@ struct DSFormat
     IsFamilyYUV = vi.IsYUV() || vi.IsYUVA();
     IsFamilyRGB = vi.IsRGB() || vi.IsPlanarRGBA();
     IsFamilyYCC = false;
-    IsFloat = vi.SampleType() == SAMPLE_FLOAT;
+    IsFloat = (vi.ComponentSize() == 4);
     IsInteger = !IsFloat;
     Planes = vi.NumComponents();
     BitsPerSample = vi.BitsPerComponent();
