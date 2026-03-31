@@ -36,7 +36,8 @@ namespace SSE2 {
 namespace AVX2 {
     #include "../src/core_AVX2.cpp"
 }
-void dither_c(float const*, unsigned char*, int, int, int, int, float, int, int, MTRand&, float*) noexcept {};
+
+void dither_c(float const*, unsigned char*, int, int, int, int, float, int, int, std::mt19937&, float*) noexcept {};
 
 // Helper class for memory alignment
 template <typename T>
