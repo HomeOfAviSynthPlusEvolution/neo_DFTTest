@@ -24,12 +24,26 @@ FetchContent_Declare(
   GIT_REPOSITORY https://github.com/google/highway.git
   GIT_TAG 1.3.0
 )
+set(HWY_ENABLE_CONTRIB OFF CACHE BOOL "" FORCE)
+set(HWY_ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(HWY_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+set(HWY_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(highway)
 
 find_package(Git REQUIRED)
-execute_process(COMMAND ${GIT_EXECUTABLE} describe --first-parent --tags --always OUTPUT_VARIABLE GIT_REPO_VERSION)
-string(REGEX REPLACE "(r[0-9]+).*" "\\1" VERSION ${GIT_REPO_VERSION})
-execute_process(COMMAND ${GIT_EXECUTABLE} rev-list --count HEAD OUTPUT_VARIABLE GIT_COMMIT_COUNT OUTPUT_STRIP_TRAILING_WHITESPACE)
+execute_process(
+  COMMAND ${GIT_EXECUTABLE} describe --first-parent --tags --always
+  WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+  OUTPUT_VARIABLE GIT_REPO_VERSION
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+string(REGEX REPLACE "^(r[0-9]+).*$" "\\1" VERSION "${GIT_REPO_VERSION}")
+execute_process(
+  COMMAND ${GIT_EXECUTABLE} rev-list --count HEAD
+  WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+  OUTPUT_VARIABLE GIT_COMMIT_COUNT
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+)
 
 configure_file (
   "${PROJECT_SOURCE_DIR}/src/version.hpp.in"
@@ -45,6 +59,7 @@ if(NOT MSVC)
 
   pkg_check_modules(AVISYNTH avisynth)
   if(AVISYNTH_FOUND)
+    include_directories(BEFORE include/avisynth)
     include_directories(${AVISYNTH_INCLUDE_DIRS})
   else()
     include_directories(include/avisynth)
@@ -102,7 +117,7 @@ if (NOT WIN32)
   target_link_libraries(neo-dfttest dl)
 endif()
 
-target_link_libraries(neo-dfttest PRIVATE hwy)
+target_link_libraries(neo-dfttest hwy)
 
 add_custom_command(
   TARGET neo-dfttest POST_BUILD

@@ -111,3 +111,8 @@ $RECYCLE.BIN/
 
 # Windows shortcuts
 *.lnk
+
+# CMake-generated project metadata
+src/version.hpp
+src/version.rc
+Release_*/
