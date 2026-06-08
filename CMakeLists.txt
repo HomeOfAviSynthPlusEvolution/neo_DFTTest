@@ -15,6 +15,17 @@ add_library(neo-dfttest SHARED
   src/neo_dfttest.hpp
 )
 set_property(TARGET neo-dfttest PROPERTY CXX_STANDARD 17)
+
+add_executable(neo-dfttest_avs_frame_dump
+  tests/tools/avs_frame_dump.cpp
+)
+set_property(TARGET neo-dfttest_avs_frame_dump PROPERTY CXX_STANDARD 17)
+target_include_directories(neo-dfttest_avs_frame_dump PRIVATE include/avisynth)
+
+if (NOT WIN32)
+  target_link_libraries(neo-dfttest_avs_frame_dump dl)
+endif()
+
 option(ENABLE_PAR "Enable C++17 Parallel Execution" ON)
 add_compile_definitions(VS_TARGET_CPU_X86 _CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_DEPRECATE)
 

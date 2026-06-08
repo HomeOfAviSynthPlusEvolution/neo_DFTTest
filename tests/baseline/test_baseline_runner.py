@@ -91,6 +91,21 @@ class ScriptRenderingTests(unittest.TestCase):
         self.assertIn('src = BlankClip(width=64, height=48, length=9, pixel_type="Y8", color=64)', script)
         self.assertIn('return neo_dfttest(src, planes="0", sigma=8.0, tbsize=1)', script)
 
+    def test_renders_avs_yuv_source_color_without_quoting(self):
+        source = {
+            "type": "blank",
+            "format": "Y8",
+            "width": 64,
+            "height": 48,
+            "length": 9,
+            "color": 64,
+            "avs_color_yuv": "$404040",
+        }
+
+        script = baseline_runner.render_avs_script("/tmp/plugin.so", source, {})
+
+        self.assertIn('src = BlankClip(width=64, height=48, length=9, pixel_type="Y8", color_yuv=$404040)', script)
+
 
 if __name__ == "__main__":
     unittest.main()
