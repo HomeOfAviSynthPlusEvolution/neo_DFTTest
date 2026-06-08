@@ -56,5 +56,41 @@ class CaseSelectionTests(unittest.TestCase):
         self.assertEqual([case["id"] for case in selected], ["smoke_default", "compat_yuv"])
 
 
+class ScriptRenderingTests(unittest.TestCase):
+    def test_renders_vs_filter_call_with_arrays_and_strings(self):
+        source = {
+            "type": "blank",
+            "format": "GRAY8",
+            "width": 64,
+            "height": 48,
+            "length": 9,
+            "color": [64],
+        }
+        params = {"tbsize": 1, "sigma": 8.0, "planes": [0], "mode": "debug"}
+
+        script = baseline_runner.render_vs_script("/tmp/plugin.so", source, params)
+
+        self.assertIn('core.std.LoadPlugin(path="/tmp/plugin.so")', script)
+        self.assertIn("core.std.BlankClip(width=64, height=48, length=9, format=vs.GRAY8, color=[64])", script)
+        self.assertIn('core.neo_dfttest.DFTTest(src, mode="debug", planes=[0], sigma=8.0, tbsize=1)', script)
+
+    def test_renders_avs_filter_call_with_arrays_as_strings(self):
+        source = {
+            "type": "blank",
+            "format": "Y8",
+            "width": 64,
+            "height": 48,
+            "length": 9,
+            "color": 64,
+        }
+        params = {"tbsize": 1, "sigma": 8.0, "planes": [0]}
+
+        script = baseline_runner.render_avs_script("/tmp/plugin.so", source, params)
+
+        self.assertIn('LoadPlugin("/tmp/plugin.so")', script)
+        self.assertIn('src = BlankClip(width=64, height=48, length=9, pixel_type="Y8", color=64)', script)
+        self.assertIn('return neo_dfttest(src, planes="0", sigma=8.0, tbsize=1)', script)
+
+
 if __name__ == "__main__":
     unittest.main()
