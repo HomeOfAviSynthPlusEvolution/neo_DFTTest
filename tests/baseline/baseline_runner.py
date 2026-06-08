@@ -329,8 +329,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--hosts", nargs="+", default=["vs", "avs"], choices=["vs", "avs"])
     args = parser.parse_args(argv)
 
+    plugin_path = args.plugin.resolve()
+    avs_dump = args.avs_dump.resolve() if args.avs_dump else None
+
     cases = select_cases(load_cases(args.cases_dir), args.tier)
-    results = run_cases(cases, args.hosts, args.plugin, args.avs_dump)
+    results = run_cases(cases, args.hosts, plugin_path, avs_dump)
     if args.command == "generate":
         write_golden(args.golden, results)
     else:
