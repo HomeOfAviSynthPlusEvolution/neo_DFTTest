@@ -374,14 +374,7 @@ void process_spatial_scalar(unsigned int thread_id, int plane, DFTPlaneBytes src
                     );
             }
 
-            context.fft.backend->submit_c2r(
-                context.fft.inverse,
-                neo_dfttest::fft::C2RBatch{
-                    ready.coefficients.fft_view(),
-                    ready.real.fft_view(),
-                    ready.batch.count,
-                }
-            ).wait();
+            neo_dfttest::DftFftOperations{context}.submit_inverse_and_wait(ready.coefficients, ready.real);
 
             float* output_row = ebuff + ready.y * ebpStride;
             for (int index = 0; index < ready.batch.count; ++index) {
@@ -463,14 +456,7 @@ void process_temporal_scalar(unsigned int thread_id, int plane, DFTPlaneBytes sr
                     );
             }
 
-            context.fft.backend->submit_c2r(
-                context.fft.inverse,
-                neo_dfttest::fft::C2RBatch{
-                    ready.coefficients.fft_view(),
-                    ready.real.fft_view(),
-                    ready.batch.count,
-                }
-            ).wait();
+            neo_dfttest::DftFftOperations{context}.submit_inverse_and_wait(ready.coefficients, ready.real);
 
             for (int index = 0; index < ready.batch.count; ++index) {
                 float* dftr = ready.real.block(index);

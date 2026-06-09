@@ -1,5 +1,6 @@
 #pragma once
 
+#include "executor/dft_fft_operation.hpp"
 #include "workspace/dft_workspace.hpp"
 
 #include <optional>
@@ -90,14 +91,7 @@ private:
     fft::Completion submit_forward(float* active_real, fft::Complex* active_coefficients, const int count) const {
         const auto real = dft_host_real_batch_view(active_real, real_stride_, count);
         const auto coefficients = dft_host_complex_batch_view(active_coefficients, complex_stride_, count);
-        return context_.fft.backend->submit_r2c(
-            context_.fft.forward,
-            fft::R2CBatch{
-                real.fft_view(),
-                coefficients.fft_view(),
-                count,
-            }
-        );
+        return DftFftOperations{context_}.submit_forward(real, coefficients);
     }
 
     template<typename CompleteBatch>
