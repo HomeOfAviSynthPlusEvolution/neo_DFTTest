@@ -59,6 +59,19 @@ AVSValue __cdecl create_avisynth_dfttest(AVSValue args, void*, IScriptEnvironmen
   return ds::avisynth::create_video_filter_bridge<DFTTestBridge>(args, env);
 }
 
+const char* register_avisynth_dfttest(IScriptEnvironment* env, bool register_mt_mode) {
+  env->AddFunction(
+    DFTTestBridge::avs_name,
+    avs_signature(),
+    create_avisynth_dfttest,
+    nullptr
+  );
+  if (register_mt_mode) {
+    ds::avisynth::set_video_filter_mt_mode<DFTTestBridge>(env);
+  }
+  return neo_dfttest::Plugin::Description;
+}
+
 } // namespace
 
 VS_EXTERNAL_API(void) VapourSynthPluginInit2(VSPlugin* plugin, const VSPLUGINAPI* vspapi) {
@@ -82,17 +95,15 @@ VS_EXTERNAL_API(void) VapourSynthPluginInit2(VSPlugin* plugin, const VSPLUGINAPI
   );
 }
 
+NEO_DFTTEST_AVS_PLUGIN_EXPORT const char* __stdcall AvisynthPluginInit2(IScriptEnvironment* env) {
+  AVS_linkage = env->GetAVSLinkage();
+  return register_avisynth_dfttest(env, false);
+}
+
 NEO_DFTTEST_AVS_PLUGIN_EXPORT const char* __stdcall AvisynthPluginInit3(
   IScriptEnvironment* env,
   const AVS_Linkage* const vectors
 ) {
   AVS_linkage = vectors;
-  env->AddFunction(
-    DFTTestBridge::avs_name,
-    avs_signature(),
-    create_avisynth_dfttest,
-    nullptr
-  );
-  ds::avisynth::set_video_filter_mt_mode<DFTTestBridge>(env);
-  return neo_dfttest::Plugin::Description;
+  return register_avisynth_dfttest(env, true);
 }
