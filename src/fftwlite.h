@@ -114,7 +114,7 @@ struct FFTFunctionPointers {
     }
   }
 
-  bool has_threading() {
+  bool has_threading() const {
     return library && fftwf_init_threads && fftwf_plan_with_nthreads;
   }
 };

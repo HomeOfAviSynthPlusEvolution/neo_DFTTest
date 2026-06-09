@@ -331,8 +331,8 @@ void Func0(unsigned int thread_id, int plane, const unsigned char * src_ptr, uns
         auto block_end = std::min(block_start + batch_size, eheight);
 
         float * dftr = d->scratch.dftr[thread_id] + (((d->derived.block_volume + 7) | 15) + 1) * bk;
-        fftwf_complex * dftc = d->scratch.dftc[thread_id] + (((d->derived.complex_count + 7) | 15) + 1) * bk;
-        fftwf_complex * dftc2 = d->scratch.dftc2[thread_id] + (((d->derived.complex_count + 7) | 15) + 1) * bk;
+        auto* dftc = d->scratch.dftc[thread_id] + (((d->derived.complex_count + 7) | 15) + 1) * bk;
+        auto* dftc2 = d->scratch.dftc2[thread_id] + (((d->derived.complex_count + 7) | 15) + 1) * bk;
 
         const T * srcp = reinterpret_cast<const T *>(src_ptr) + srcStride * block_start;
         float * ebpSaved = ebuff + ebpStride * block_start;
@@ -341,7 +341,7 @@ void Func0(unsigned int thread_id, int plane, const unsigned char * src_ptr, uns
             for (int x = 0; x <= width - d->block.spatial_size; x += d->derived.step) {
                 Proc0(srcp + x, d->coefficients.window, dftr, srcStride, d->block.spatial_size, d->sample.divisor);
 
-                d->fft.api->fftwf_execute_dft_r2c(d->fft.forward, dftr, dftc);
+                d->fft.backend->execute_r2c(d->fft.forward, dftr, dftc);
                 if (d->block.zero_mean)
                     RemoveMean(reinterpret_cast<float *>(dftc), reinterpret_cast<const float *>(d->coefficients.window_dft), d->derived.coefficient_count, reinterpret_cast<float *>(dftc2));
 
@@ -349,7 +349,7 @@ void Func0(unsigned int thread_id, int plane, const unsigned char * src_ptr, uns
 
                 if (d->block.zero_mean)
                     AddMean(reinterpret_cast<float *>(dftc), d->derived.coefficient_count, reinterpret_cast<const float *>(dftc2));
-                d->fft.api->fftwf_execute_dft_c2r(d->fft.inverse, dftc, dftr);
+                d->fft.backend->execute_c2r(d->fft.inverse, dftc, dftr);
 
                 if (d->derived.transform_type & 1) { // spatial overlapping
                     using D_f = hn::ScalableTag<float>;
@@ -403,8 +403,8 @@ void Func1(unsigned int thread_id, int plane, const unsigned char * src_ptr, uns
         auto block_end = std::min(block_start + batch_size, eheight);
 
         float * dftr = d->scratch.dftr[thread_id] + (((d->derived.block_volume + 7) | 15) + 1) * bk;
-        fftwf_complex * dftc = d->scratch.dftc[thread_id] + (((d->derived.complex_count + 7) | 15) + 1) * bk;
-        fftwf_complex * dftc2 = d->scratch.dftc2[thread_id] + (((d->derived.complex_count + 7) | 15) + 1) * bk;
+        auto* dftc = d->scratch.dftc[thread_id] + (((d->derived.complex_count + 7) | 15) + 1) * bk;
+        auto* dftc2 = d->scratch.dftc2[thread_id] + (((d->derived.complex_count + 7) | 15) + 1) * bk;
 
         const T * srcp[15] = {}; // Max d->block.temporal_size is 15 based on original code comments
         for (int i = 0; i < d->block.temporal_size; i++)
@@ -415,7 +415,7 @@ void Func1(unsigned int thread_id, int plane, const unsigned char * src_ptr, uns
                 for (int z = 0; z < d->block.temporal_size; z++)
                     Proc0(srcp[z] + x, d->coefficients.window + d->derived.block_area * z, dftr + d->derived.block_area * z, srcStride, d->block.spatial_size, d->sample.divisor);
 
-                d->fft.api->fftwf_execute_dft_r2c(d->fft.forward, dftr, dftc);
+                d->fft.backend->execute_r2c(d->fft.forward, dftr, dftc);
                 if (d->block.zero_mean)
                     RemoveMean(reinterpret_cast<float *>(dftc), reinterpret_cast<const float *>(d->coefficients.window_dft), d->derived.coefficient_count, reinterpret_cast<float *>(dftc2));
 
@@ -423,7 +423,7 @@ void Func1(unsigned int thread_id, int plane, const unsigned char * src_ptr, uns
 
                 if (d->block.zero_mean)
                     AddMean(reinterpret_cast<float *>(dftc), d->derived.coefficient_count, reinterpret_cast<const float *>(dftc2));
-                d->fft.api->fftwf_execute_dft_c2r(d->fft.inverse, dftc, dftr);
+                d->fft.backend->execute_c2r(d->fft.inverse, dftc, dftr);
 
                 if (d->derived.transform_type & 1) { // spatial overlapping
                     using D_f = hn::ScalableTag<float>;

@@ -170,15 +170,11 @@ public:
       _aligned_free(buf);
     }
 
-    if (fft_.library) {
+    if (fft_ && fft_->loaded()) {
       ds::HostGlobalLockGuard lock("fftw", host_locks_);
-      if (state_.fft.forward) {
-        fft_.fftwf_destroy_plan(state_.fft.forward);
-      }
-      if (state_.fft.inverse) {
-        fft_.fftwf_destroy_plan(state_.fft.inverse);
-      }
-      fft_.free();
+      fft_->destroy_plan(state_.fft.forward);
+      fft_->destroy_plan(state_.fft.inverse);
+      fft_->unload();
     }
   }
 
@@ -192,8 +188,9 @@ public:
     const ds::ParamValues empty_params{};
     const ds::ParamValues& values = params ? *params : empty_params;
 
-    fft_.load();
-    state_.fft.api = &fft_;
+    fft_ = fft::create_fftw_backend();
+    fft_->load();
+    state_.fft.backend = fft_.get();
     state_.format.bits_per_sample = ds::bits_per_sample(input.format.sample_format);
     state_.format.bytes_per_sample = ds::bytes_per_sample(input.format.sample_format);
     state_.format.integer = input.format.sample_format != ds::SampleFormat::Float32;
@@ -339,9 +336,8 @@ private:
       state_.block.temporal_overlap = 0;
     }
 
-    if (fft_threads_ > 1 && fft_.has_threading()) {
-      fft_.fftwf_init_threads();
-      fft_.fftwf_plan_with_nthreads(fft_threads_);
+    if (fft_threads_ > 1 && state_.fft.backend->has_threading()) {
+      state_.fft.backend->set_thread_count(fft_threads_);
     }
 
     nlocation_ = detail::read_int_array(values, "nlocation");
@@ -518,8 +514,8 @@ private:
 
     float* dftgr = static_cast<float*>(_aligned_malloc((state_.derived.block_volume + 7) * sizeof(float), FRAME_ALIGN));
     detail::AlignedPtr<float> dftgr_smart(dftgr);
-    state_.coefficients.window_dft = static_cast<fftwf_complex*>(
-      _aligned_malloc((state_.derived.complex_count + 7) * sizeof(fftwf_complex), FRAME_ALIGN)
+    state_.coefficients.window_dft = static_cast<fft::Complex*>(
+      _aligned_malloc((state_.derived.complex_count + 7) * sizeof(fft::Complex), FRAME_ALIGN)
     );
     if (!dftgr || !state_.coefficients.window_dft) {
       throw std::runtime_error("malloc failure (dftgr/dftgc)");
@@ -528,36 +524,36 @@ private:
     {
       ds::HostGlobalLockGuard fftw_lock("fftw", host_locks_);
       if (state_.block.temporal_size > 1) {
-        state_.fft.forward = fft_.fftwf_plan_dft_r2c_3d(
+        state_.fft.forward = state_.fft.backend->plan_r2c_3d(
           state_.block.temporal_size,
           state_.block.spatial_size,
           state_.block.spatial_size,
           dftgr,
           state_.coefficients.window_dft,
-          FFTW_PATIENT | FFTW_DESTROY_INPUT
+          fft::kPatientDestroyInputPlanFlags
         );
-        state_.fft.inverse = fft_.fftwf_plan_dft_c2r_3d(
+        state_.fft.inverse = state_.fft.backend->plan_c2r_3d(
           state_.block.temporal_size,
           state_.block.spatial_size,
           state_.block.spatial_size,
           state_.coefficients.window_dft,
           dftgr,
-          FFTW_PATIENT | FFTW_DESTROY_INPUT
+          fft::kPatientDestroyInputPlanFlags
         );
       } else {
-        state_.fft.forward = fft_.fftwf_plan_dft_r2c_2d(
+        state_.fft.forward = state_.fft.backend->plan_r2c_2d(
           state_.block.spatial_size,
           state_.block.spatial_size,
           dftgr,
           state_.coefficients.window_dft,
-          FFTW_PATIENT | FFTW_DESTROY_INPUT
+          fft::kPatientDestroyInputPlanFlags
         );
-        state_.fft.inverse = fft_.fftwf_plan_dft_c2r_2d(
+        state_.fft.inverse = state_.fft.backend->plan_c2r_2d(
           state_.block.spatial_size,
           state_.block.spatial_size,
           state_.coefficients.window_dft,
           dftgr,
-          FFTW_PATIENT | FFTW_DESTROY_INPUT
+          fft::kPatientDestroyInputPlanFlags
         );
       }
     }
@@ -576,7 +572,7 @@ private:
       }
     }
 
-    fft_.fftwf_execute_dft_r2c(state_.fft.forward, dftgr, state_.coefficients.window_dft);
+    state_.fft.backend->execute_r2c(state_.fft.forward, dftgr, state_.coefficients.window_dft);
     wscale_ = 1.0f / wscale;
   }
 
@@ -720,14 +716,14 @@ private:
     createWindow(hw2, 0, 0, &state_);
 
     float* dftr = static_cast<float*>(_aligned_malloc((state_.derived.block_volume + 7) * sizeof(float), FRAME_ALIGN));
-    auto* dftgc2 = static_cast<fftwf_complex*>(
-      _aligned_malloc((state_.derived.complex_count + 7) * sizeof(fftwf_complex), FRAME_ALIGN)
+    auto* dftgc2 = static_cast<fft::Complex*>(
+      _aligned_malloc((state_.derived.complex_count + 7) * sizeof(fft::Complex), FRAME_ALIGN)
     );
     if (!dftr || !dftgc2) {
       throw std::runtime_error("malloc failure (dftr/dftgc2)");
     }
     detail::AlignedPtr<float> dftr_smart(dftr);
-    detail::AlignedPtr<fftwf_complex> dftgc2_smart(dftgc2);
+    detail::AlignedPtr<fft::Complex> dftgc2_smart(dftgc2);
 
     float wscale2 = 0.0f;
     int w = 0;
@@ -740,19 +736,19 @@ private:
       }
     }
     wscale2 = 1.0f / wscale2;
-    fft_.fftwf_execute_dft_r2c(state_.fft.forward, dftr, dftgc2);
+    state_.fft.backend->execute_r2c(state_.fft.forward, dftr, dftgc2);
 
-    auto* dftc = static_cast<fftwf_complex*>(
-      _aligned_malloc((state_.derived.complex_count + 7) * sizeof(fftwf_complex), FRAME_ALIGN)
+    auto* dftc = static_cast<fft::Complex*>(
+      _aligned_malloc((state_.derived.complex_count + 7) * sizeof(fft::Complex), FRAME_ALIGN)
     );
-    auto* dftc2 = static_cast<fftwf_complex*>(
-      _aligned_malloc((state_.derived.complex_count + 7) * sizeof(fftwf_complex), FRAME_ALIGN)
+    auto* dftc2 = static_cast<fft::Complex*>(
+      _aligned_malloc((state_.derived.complex_count + 7) * sizeof(fft::Complex), FRAME_ALIGN)
     );
     if (!dftc || !dftc2) {
       throw std::runtime_error("malloc failure (dftc/dftc2)");
     }
-    detail::AlignedPtr<fftwf_complex> dftc_smart(dftc);
-    detail::AlignedPtr<fftwf_complex> dftc2_smart(dftc2);
+    detail::AlignedPtr<fft::Complex> dftc_smart(dftc);
+    detail::AlignedPtr<fft::Complex> dftc2_smart(dftc2);
 
     for (const NPInfo& point : noise_points_) {
       for (int z = 0; z < state_.block.temporal_size; z++) {
@@ -779,7 +775,7 @@ private:
         }
       }
 
-      fft_.fftwf_execute_dft_r2c(state_.fft.forward, dftr, dftc);
+      state_.fft.backend->execute_r2c(state_.fft.forward, dftr, dftc);
 
       if (state_.block.zero_mean) {
         removeMean_c(
@@ -941,11 +937,11 @@ private:
     state_.scratch.dftr[thread_id] = static_cast<float*>(
       _aligned_malloc(sizeof(float) * (((state_.derived.block_volume + 7) | 15) + 1) * state_.block.worker_threads, FRAME_ALIGN)
     );
-    state_.scratch.dftc[thread_id] = static_cast<fftwf_complex*>(
-      _aligned_malloc(sizeof(fftwf_complex) * (((state_.derived.complex_count + 7) | 15) + 1) * state_.block.worker_threads, FRAME_ALIGN)
+    state_.scratch.dftc[thread_id] = static_cast<fft::Complex*>(
+      _aligned_malloc(sizeof(fft::Complex) * (((state_.derived.complex_count + 7) | 15) + 1) * state_.block.worker_threads, FRAME_ALIGN)
     );
-    state_.scratch.dftc2[thread_id] = static_cast<fftwf_complex*>(
-      _aligned_malloc(sizeof(fftwf_complex) * (((state_.derived.complex_count + 7) | 15) + 1) * state_.block.worker_threads, FRAME_ALIGN)
+    state_.scratch.dftc2[thread_id] = static_cast<fft::Complex*>(
+      _aligned_malloc(sizeof(fft::Complex) * (((state_.derived.complex_count + 7) | 15) + 1) * state_.block.worker_threads, FRAME_ALIGN)
     );
 
     if (!state_.scratch.ebuff[thread_id] || !state_.scratch.dftr[thread_id] || !state_.scratch.dftc[thread_id] || !state_.scratch.dftc2[thread_id]) {
@@ -968,7 +964,7 @@ private:
   ds::VideoInputInfo input_{};
   ds::HostGlobalLockCallbacks host_locks_{};
   DFTTestData state_{};
-  FFTFunctionPointers fft_{};
+  std::unique_ptr<fft::Backend> fft_;
   int fft_threads_ = 2;
   int ftype_ = 0;
   int smode_ = 1;

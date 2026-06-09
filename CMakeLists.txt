@@ -12,6 +12,8 @@ add_library(neo-dfttest SHARED
   src/dft_common.h
   src/engine/dfttest_engine.cpp
   src/engine/dfttest_engine.hpp
+  src/fft/fft_backend.hpp
+  src/fft/fftw_backend.cpp
   src/fftwlite.h
 )
 set_property(TARGET neo-dfttest PROPERTY CXX_STANDARD 23)

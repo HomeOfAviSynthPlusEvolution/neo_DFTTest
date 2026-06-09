@@ -253,8 +253,8 @@ template<typename T>
 void func_0_c(unsigned int thread_id, int plane, const unsigned char * src_ptr, unsigned char * dst_ptr, int dst_stride_bytes, const DFTTestData * d) noexcept {
     float * ebuff = d->scratch.ebuff[thread_id];
     float * dftr = d->scratch.dftr[thread_id];
-    fftwf_complex * dftc = d->scratch.dftc[thread_id];
-    fftwf_complex * dftc2 = d->scratch.dftc2[thread_id];
+    auto* dftc = d->scratch.dftc[thread_id];
+    auto* dftc2 = d->scratch.dftc2[thread_id];
 
     const int width = d->planes.pad_width[plane];
     const int height = d->planes.pad_height[plane];
@@ -270,7 +270,7 @@ void func_0_c(unsigned int thread_id, int plane, const unsigned char * src_ptr, 
         for (int x = 0; x <= width - d->block.spatial_size; x += d->derived.step) {
             proc0(srcp + x, d->coefficients.window, dftr, srcStride, d->block.spatial_size, d->sample.divisor);
 
-            d->fft.api->fftwf_execute_dft_r2c(d->fft.forward, dftr, dftc);
+            d->fft.backend->execute_r2c(d->fft.forward, dftr, dftc);
             if (d->block.zero_mean)
                 removeMean(reinterpret_cast<float *>(dftc), reinterpret_cast<const float *>(d->coefficients.window_dft), d->derived.coefficient_count, reinterpret_cast<float *>(dftc2));
 
@@ -278,7 +278,7 @@ void func_0_c(unsigned int thread_id, int plane, const unsigned char * src_ptr, 
 
             if (d->block.zero_mean)
                 addMean(reinterpret_cast<float *>(dftc), d->derived.coefficient_count, reinterpret_cast<const float *>(dftc2));
-            d->fft.api->fftwf_execute_dft_c2r(d->fft.inverse, dftc, dftr);
+            d->fft.backend->execute_c2r(d->fft.inverse, dftc, dftr);
 
             if (d->derived.transform_type & 1) // spatial overlapping
                 proc1(dftr, d->coefficients.window, ebpSaved + x, d->block.spatial_size, ebpStride);
@@ -305,8 +305,8 @@ template<typename T>
 void func_1_c(unsigned int thread_id, int plane, const unsigned char * src_ptr, unsigned char * dst_ptr, int dst_stride_bytes, const int pos, const DFTTestData * d) noexcept {
     float * ebuff = d->scratch.ebuff[thread_id];
     float * dftr = d->scratch.dftr[thread_id];
-    fftwf_complex * dftc = d->scratch.dftc[thread_id];
-    fftwf_complex * dftc2 = d->scratch.dftc2[thread_id];
+    auto* dftc = d->scratch.dftc[thread_id];
+    auto* dftc2 = d->scratch.dftc2[thread_id];
 
     const int width = d->planes.pad_width[plane];
     const int height = d->planes.pad_height[plane];
@@ -325,7 +325,7 @@ void func_1_c(unsigned int thread_id, int plane, const unsigned char * src_ptr, 
             for (int z = 0; z < d->block.temporal_size; z++)
                 proc0(srcp[z] + x, d->coefficients.window + d->derived.block_area * z, dftr + d->derived.block_area * z, srcStride, d->block.spatial_size, d->sample.divisor);
 
-            d->fft.api->fftwf_execute_dft_r2c(d->fft.forward, dftr, dftc);
+            d->fft.backend->execute_r2c(d->fft.forward, dftr, dftc);
             if (d->block.zero_mean)
                 removeMean(reinterpret_cast<float *>(dftc), reinterpret_cast<const float *>(d->coefficients.window_dft), d->derived.coefficient_count, reinterpret_cast<float *>(dftc2));
 
@@ -333,7 +333,7 @@ void func_1_c(unsigned int thread_id, int plane, const unsigned char * src_ptr, 
 
             if (d->block.zero_mean)
                 addMean(reinterpret_cast<float *>(dftc), d->derived.coefficient_count, reinterpret_cast<const float *>(dftc2));
-            d->fft.api->fftwf_execute_dft_c2r(d->fft.inverse, dftc, dftr);
+            d->fft.backend->execute_c2r(d->fft.inverse, dftc, dftr);
 
             if (d->derived.transform_type & 1) // spatial overlapping
                 proc1(dftr + pos * d->derived.block_area, d->coefficients.window + pos * d->derived.block_area, ebuff + y * ebpStride + x, d->block.spatial_size, ebpStride);

@@ -21,7 +21,7 @@
   #undef ENABLE_PAR
 #endif
 
-#include "fftwlite.h"
+#include "fft/fft_backend.hpp"
 
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L
 #define VS_RESTRICT restrict
@@ -54,9 +54,9 @@ using DFTProcessSpatialFunction = void (*)(unsigned int thread_id, int plane, co
 using DFTProcessTemporalFunction = void (*)(unsigned int thread_id, int plane, const unsigned char *, unsigned char *, int, const int, const DFTTestData *);
 
 struct DFTFftState {
-    FFTFunctionPointers* api {nullptr};
-    fftwf_plan forward {nullptr};
-    fftwf_plan inverse {nullptr};
+    neo_dfttest::fft::Backend* backend {nullptr};
+    neo_dfttest::fft::Plan forward {nullptr};
+    neo_dfttest::fft::Plan inverse {nullptr};
 };
 
 struct DFTClipFormat {
@@ -121,7 +121,7 @@ struct DFTCoefficientTables {
     float* sigmas2 {nullptr};
     float* pmins {nullptr};
     float* pmaxs {nullptr};
-    fftwf_complex* window_dft {nullptr};
+    neo_dfttest::fft::Complex* window_dft {nullptr};
 };
 
 struct DFTThreadScratch {
@@ -129,8 +129,8 @@ struct DFTThreadScratch {
     std::vector<std::unique_ptr<std::mt19937>> rngs;
     std::vector<float*> ebuff;
     std::vector<float*> dftr;
-    std::vector<fftwf_complex*> dftc;
-    std::vector<fftwf_complex*> dftc2;
+    std::vector<neo_dfttest::fft::Complex*> dftc;
+    std::vector<neo_dfttest::fft::Complex*> dftc2;
 };
 
 struct DFTKernelDispatch {
