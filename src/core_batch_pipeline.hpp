@@ -1,17 +1,11 @@
 #pragma once
 
-#include "dft_common.h"
+#include "workspace/dft_workspace.hpp"
 
 #include <optional>
 #include <utility>
 
 namespace neo_dfttest {
-
-struct DFTBatchScratchBuffers {
-    float* real {nullptr};
-    fft::Complex* coefficients {nullptr};
-    fft::Complex* removed_mean {nullptr};
-};
 
 struct DFTCompletedBatch {
     const DFTBlockBatch& batch;

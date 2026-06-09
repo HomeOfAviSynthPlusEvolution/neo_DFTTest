@@ -25,6 +25,7 @@ add_library(neo-dfttest SHARED
   src/engine/pixel_plane.hpp
   src/fftwlite.h
   src/memory/aligned_buffer.hpp
+  src/workspace/dft_workspace.hpp
 )
 set_property(TARGET neo-dfttest PROPERTY CXX_STANDARD 23)
 

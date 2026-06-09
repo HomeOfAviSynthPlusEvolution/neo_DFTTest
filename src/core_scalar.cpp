@@ -300,10 +300,8 @@ inline void dither<uint8_t>(const float * ebp, uint8_t * VS_RESTRICT dstp, const
 
 template<typename T>
 void process_spatial_scalar(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const DFTKernelContext& context) {
-    float * ebuff = context.scratch.slots[thread_id].ebuff.data();
-    float * dftr_base = context.scratch.slots[thread_id].dftr.data();
-    auto* dftc_base = context.scratch.slots[thread_id].dftc.data();
-    auto* dftc2_base = context.scratch.slots[thread_id].dftc2.data();
+    const auto workspace = neo_dfttest::dft_thread_workspace(context, thread_id);
+    float* ebuff = workspace.accumulation;
 
     const int width = context.planes.pad_width[plane];
     const int height = context.planes.pad_height[plane];
@@ -312,11 +310,11 @@ void process_spatial_scalar(unsigned int thread_id, int plane, DFTPlaneBytes src
     const int ebpStride = context.planes.e_stride[plane];
     const T * srcp = reinterpret_cast<const T *>(src.data);
 
-    memset(ebuff, 0, ebpStride * height * sizeof(float));
+    neo_dfttest::clear_accumulation(workspace, static_cast<std::size_t>(ebpStride) * height);
 
     neo_dfttest::run_dft_batch_pipeline(
         context,
-        neo_dfttest::DFTBatchScratchBuffers{dftr_base, dftc_base, dftc2_base},
+        workspace.batch,
         width,
         eheight,
         [&](int y, int x, float* dftr) noexcept {
@@ -374,17 +372,15 @@ void process_spatial_scalar(unsigned int thread_id, int plane, DFTPlaneBytes src
     T * dstp = reinterpret_cast<T *>(dst.data);
     const float * ebp = ebuff + ebpStride * ((height - dstHeight) / 2) + (width - dstWidth) / 2;
     if (context.block.dither_mode > 0)
-        dither(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, context.sample.multiplier, context.sample.peak, context.block.dither_mode, context.scratch.slots[thread_id].rng.get(), context.scratch.slots[thread_id].dither_buffer.data());
+        dither(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, context.sample.multiplier, context.sample.peak, context.block.dither_mode, workspace.dither_rng, workspace.dither_buffer);
     else
         cast(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, context.sample.multiplier, context.sample.peak);
 }
 
 template<typename T>
 void process_temporal_scalar(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const int pos, const DFTKernelContext& context) {
-    float * ebuff = context.scratch.slots[thread_id].ebuff.data();
-    float * dftr_base = context.scratch.slots[thread_id].dftr.data();
-    auto* dftc_base = context.scratch.slots[thread_id].dftc.data();
-    auto* dftc2_base = context.scratch.slots[thread_id].dftc2.data();
+    const auto workspace = neo_dfttest::dft_thread_workspace(context, thread_id);
+    float* ebuff = workspace.accumulation;
 
     const int width = context.planes.pad_width[plane];
     const int height = context.planes.pad_height[plane];
@@ -396,11 +392,11 @@ void process_temporal_scalar(unsigned int thread_id, int plane, DFTPlaneBytes sr
     for (int i = 0; i < context.block.temporal_size; i++)
         srcp[i] = reinterpret_cast<const T *>(src.data + context.planes.pad_block_size[plane] * i);
 
-    memset(ebuff, 0, ebpStride * height * sizeof(float));
+    neo_dfttest::clear_accumulation(workspace, static_cast<std::size_t>(ebpStride) * height);
 
     neo_dfttest::run_dft_batch_pipeline(
         context,
-        neo_dfttest::DFTBatchScratchBuffers{dftr_base, dftc_base, dftc2_base},
+        workspace.batch,
         width,
         eheight,
         [&](int y, int x, float* dftr) noexcept {
@@ -458,7 +454,7 @@ void process_temporal_scalar(unsigned int thread_id, int plane, DFTPlaneBytes sr
     T * dstp = reinterpret_cast<T *>(dst.data);
     const float * ebp = ebuff + ebpStride * ((height - dstHeight) / 2) + (width - dstWidth) / 2;
     if (context.block.dither_mode > 0)
-        dither(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, context.sample.multiplier, context.sample.peak, context.block.dither_mode, context.scratch.slots[thread_id].rng.get(), context.scratch.slots[thread_id].dither_buffer.data());
+        dither(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, context.sample.multiplier, context.sample.peak, context.block.dither_mode, workspace.dither_rng, workspace.dither_buffer);
     else
         cast(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, context.sample.multiplier, context.sample.peak);
 }
