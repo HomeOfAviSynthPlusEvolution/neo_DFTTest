@@ -57,6 +57,35 @@ struct DFTConstFloatSpan {
     int size {0};
 };
 
+struct DFTConstFloatPlane {
+    const float* data {nullptr};
+    int width {0};
+    int height {0};
+    int stride_elements {0};
+};
+
+struct DFTMutableBytePlane {
+    uint8_t* data {nullptr};
+    int width {0};
+    int height {0};
+    int stride_elements {0};
+};
+
+template<typename T>
+struct DFTConstSampleBlock {
+    const T* data {nullptr};
+    int stride_elements {0};
+    int size {0};
+};
+
+struct DFTDitherContext {
+    float multiplier {1.0f};
+    int peak {1};
+    int mode {0};
+    std::mt19937* rng {nullptr};
+    DFTMutableFloatSpan buffer;
+};
+
 struct DFTFilterInput {
     DFTMutableFloatSpan coefficients;
     DFTConstFloatSpan sigmas;
@@ -238,12 +267,11 @@ struct NPInfo {
 DFTKernelDispatch selectFunctions(const unsigned ftype, const unsigned opt, const DFTClipFormat& format, const DFTBlockSettings& block) noexcept;
 void createWindow(DFTMutableFloatSpan window, const int tmode, const int smode, const DFTBlockSettings& block, const DFTDerivedGeometry& derived) noexcept;
 std::vector<float> parseSigmaLocation(const std::vector<float>& s, const float sigma, const float pfact);
-float interp(const float pf, const float * pv, const int cnt) noexcept;
-float getSVal(const int pos, const int len, const float * pv, const int cnt, float & pf) noexcept;
-void removeMean_c(float * VS_RESTRICT dftc, const float * dftgc, const int ccnt, float * VS_RESTRICT dftc2) noexcept;
+float interp(const float pf, DFTConstFloatSpan points) noexcept;
+float getSVal(const int pos, const int len, DFTConstFloatSpan points, float & pf) noexcept;
+void remove_mean_scalar(DFTMutableFloatSpan coefficients, DFTConstFloatSpan reference, DFTMutableFloatSpan removed) noexcept;
 template<typename T>
-void proc0_c(const T * s0, const float * s1, float * VS_RESTRICT d, const int p0, const int p1, const float divisor) noexcept;
-void dither_c(const float * ebp, uint8_t * VS_RESTRICT dstp, const int dstWidth, const int dstHeight, const int dstStride, const int ebpStride,
-                 const float multiplier, const int peak, const int dither_mode, std::mt19937 &rng, float *dither_buff) noexcept;
+void load_windowed_block_scalar(DFTConstSampleBlock<T> source, DFTConstFloatSpan window, DFTMutableFloatSpan destination, float divisor) noexcept;
+void dither_u8_scalar(DFTConstFloatPlane source, DFTMutableBytePlane destination, DFTDitherContext context) noexcept;
 
 #endif

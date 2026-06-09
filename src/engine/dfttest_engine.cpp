@@ -365,16 +365,16 @@ private:
     float pfx = 0.0f;
 
     for (int z = 0; z < state_.block.temporal_size; z++) {
-      const float tval = getSVal(z, state_.block.temporal_size, tdata.data(), tcnt, pft);
+      const float tval = getSVal(z, state_.block.temporal_size, DFTConstFloatSpan{tdata.data(), tcnt * 2}, pft);
       for (int y = 0; y < state_.block.spatial_size; y++) {
-        const float syval = getSVal(y, state_.block.spatial_size, sydata.data(), sycnt, pfy);
+        const float syval = getSVal(y, state_.block.spatial_size, DFTConstFloatSpan{sydata.data(), sycnt * 2}, pfy);
         for (int x = 0; x < cpx; x++) {
-          const float sxval = getSVal(x, state_.block.spatial_size, sxdata.data(), sxcnt, pfx);
+          const float sxval = getSVal(x, state_.block.spatial_size, DFTConstFloatSpan{sxdata.data(), sxcnt * 2}, pfx);
           float val = 0.0f;
 
           if (config_.ssystem) {
             const float dw = std::sqrt((pft * pft + pfy * pfy + pfx * pfx) / static_cast<float>(ndim));
-            val = interp(dw, tdata.data(), tcnt);
+            val = interp(dw, DFTConstFloatSpan{tdata.data(), tcnt * 2});
           } else {
             val = tval * syval * sxval;
           }
@@ -478,29 +478,43 @@ private:
 
         if (state_.format.bytes_per_sample == 1) {
           const auto* srcp = plane.typed_at<std::uint8_t>(point.x, point.y, state_.format.bytes_per_sample);
-          proc0_c(srcp, hw2.data() + state_.derived.block_area * z, dftr.data() + state_.derived.block_area * z, stride_elements, state_.block.spatial_size, state_.sample.divisor);
+          load_windowed_block_scalar(
+            DFTConstSampleBlock<std::uint8_t>{srcp, stride_elements, state_.block.spatial_size},
+            DFTConstFloatSpan{hw2.data() + state_.derived.block_area * z, state_.derived.block_area},
+            DFTMutableFloatSpan{dftr.data() + state_.derived.block_area * z, state_.derived.block_area},
+            state_.sample.divisor
+          );
         } else if (state_.format.bytes_per_sample == 2) {
           const auto* srcp = plane.typed_at<std::uint16_t>(point.x, point.y, state_.format.bytes_per_sample);
-          proc0_c(srcp, hw2.data() + state_.derived.block_area * z, dftr.data() + state_.derived.block_area * z, stride_elements, state_.block.spatial_size, state_.sample.divisor);
+          load_windowed_block_scalar(
+            DFTConstSampleBlock<std::uint16_t>{srcp, stride_elements, state_.block.spatial_size},
+            DFTConstFloatSpan{hw2.data() + state_.derived.block_area * z, state_.derived.block_area},
+            DFTMutableFloatSpan{dftr.data() + state_.derived.block_area * z, state_.derived.block_area},
+            state_.sample.divisor
+          );
         } else {
           const auto* srcp = plane.typed_at<float>(point.x, point.y, state_.format.bytes_per_sample);
-          proc0_c(srcp, hw2.data() + state_.derived.block_area * z, dftr.data() + state_.derived.block_area * z, stride_elements, state_.block.spatial_size, state_.sample.divisor);
+          load_windowed_block_scalar(
+            DFTConstSampleBlock<float>{srcp, stride_elements, state_.block.spatial_size},
+            DFTConstFloatSpan{hw2.data() + state_.derived.block_area * z, state_.derived.block_area},
+            DFTMutableFloatSpan{dftr.data() + state_.derived.block_area * z, state_.derived.block_area},
+            state_.sample.divisor
+          );
         }
       }
 
       state_.fft.backend->execute_r2c(state_.fft.forward, dftr.data(), dftc.data());
 
       if (state_.block.zero_mean) {
-        removeMean_c(
-          reinterpret_cast<float*>(dftc.data()),
-          reinterpret_cast<const float*>(dftgc2.data()),
-          state_.derived.coefficient_count,
-          reinterpret_cast<float*>(dftc2.data())
+        remove_mean_scalar(
+          DFTMutableFloatSpan{complex_float_data(dftc.data()), state_.derived.coefficient_count},
+          DFTConstFloatSpan{complex_float_data(dftgc2.data()), state_.derived.coefficient_count},
+          DFTMutableFloatSpan{complex_float_data(dftc2.data()), state_.derived.coefficient_count}
         );
       }
 
       for (int h = 0; h < state_.derived.coefficient_count; h += 2) {
-        const float* dftc_f = reinterpret_cast<float*>(dftc.data());
+        const float* dftc_f = complex_float_data(dftc.data());
         const float psd = dftc_f[h] * dftc_f[h] + dftc_f[h + 1] * dftc_f[h + 1];
         state_.coefficients.sigmas[h] += psd;
         state_.coefficients.sigmas[h + 1] += psd;

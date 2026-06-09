@@ -5,10 +5,11 @@ add_library(neo-dfttest SHARED
   src/plugin/dfttest_filter.cpp
   src/plugin/dfttest_filter.hpp
   src/version.rc
-  src/core.cpp
+  src/core_dispatch.cpp
+  src/core_window.cpp
   src/core.h
-  src/core_C.cpp
-  src/core_hwy.cpp
+  src/core_scalar.cpp
+  src/core_simd_hwy.cpp
   src/dft_common.h
   src/engine/dfttest_engine.cpp
   src/engine/dfttest_engine.hpp

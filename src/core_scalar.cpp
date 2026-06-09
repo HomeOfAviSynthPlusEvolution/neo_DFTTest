@@ -26,45 +26,54 @@
 
 
 template<typename T>
-static inline void proc0(const T * s0, const float * s1, float * VS_RESTRICT d, const int p0, const int p1, const float divisor) noexcept;
+static inline void load_windowed_block(DFTConstSampleBlock<T> source, DFTConstFloatSpan window, DFTMutableFloatSpan destination, const float divisor) noexcept;
 
 template<>
-inline void proc0(const uint8_t * s0, const float * s1, float * VS_RESTRICT d, const int p0, const int p1, const float divisor) noexcept {
-    for (int u = 0; u < p1; u++) {
-        for (int v = 0; v < p1; v++)
+inline void load_windowed_block(DFTConstSampleBlock<uint8_t> source, DFTConstFloatSpan window, DFTMutableFloatSpan destination, const float divisor) noexcept {
+    const uint8_t* s0 = source.data;
+    const float* s1 = window.data;
+    float* d = destination.data;
+    for (int u = 0; u < source.size; u++) {
+        for (int v = 0; v < source.size; v++)
             d[v] = s0[v] * s1[v];
 
-        s0 += p0;
-        s1 += p1;
-        d += p1;
+        s0 += source.stride_elements;
+        s1 += source.size;
+        d += source.size;
     }
 }
 
 template<>
-inline void proc0(const uint16_t * s0, const float * s1, float * VS_RESTRICT d, const int p0, const int p1, const float divisor) noexcept {
-    for (int u = 0; u < p1; u++) {
-        for (int v = 0; v < p1; v++)
+inline void load_windowed_block(DFTConstSampleBlock<uint16_t> source, DFTConstFloatSpan window, DFTMutableFloatSpan destination, const float divisor) noexcept {
+    const uint16_t* s0 = source.data;
+    const float* s1 = window.data;
+    float* d = destination.data;
+    for (int u = 0; u < source.size; u++) {
+        for (int v = 0; v < source.size; v++)
             d[v] = s0[v] * divisor * s1[v];
 
-        s0 += p0;
-        s1 += p1;
-        d += p1;
+        s0 += source.stride_elements;
+        s1 += source.size;
+        d += source.size;
     }
 }
 
 template<>
-inline void proc0(const float * s0, const float * s1, float * VS_RESTRICT d, const int p0, const int p1, const float divisor) noexcept {
-    for (int u = 0; u < p1; u++) {
-        for (int v = 0; v < p1; v++)
+inline void load_windowed_block(DFTConstSampleBlock<float> source, DFTConstFloatSpan window, DFTMutableFloatSpan destination, const float divisor) noexcept {
+    const float* s0 = source.data;
+    const float* s1 = window.data;
+    float* d = destination.data;
+    for (int u = 0; u < source.size; u++) {
+        for (int v = 0; v < source.size; v++)
             d[v] = s0[v] * 255.0f * s1[v];
 
-        s0 += p0;
-        s1 += p1;
-        d += p1;
+        s0 += source.stride_elements;
+        s1 += source.size;
+        d += source.size;
     }
 }
 
-static inline void proc1(const float * s0, const float * s1, float * VS_RESTRICT d, const int p0, const int p1) noexcept {
+static inline void accumulate_overlap(const float * s0, const float * s1, float * VS_RESTRICT d, const int p0, const int p1) noexcept {
     for (int u = 0; u < p0; u++) {
         for (int v = 0; v < p0; v++)
             d[v] += s0[v] * s1[v];
@@ -75,7 +84,11 @@ static inline void proc1(const float * s0, const float * s1, float * VS_RESTRICT
     }
 }
 
-static inline void removeMean(float * VS_RESTRICT dftc, const float * dftgc, const int ccnt, float * VS_RESTRICT dftc2) noexcept {
+static inline void remove_mean(DFTMutableFloatSpan coefficients, DFTConstFloatSpan reference, DFTMutableFloatSpan removed) noexcept {
+    float* VS_RESTRICT dftc = coefficients.data;
+    const float* dftgc = reference.data;
+    float* VS_RESTRICT dftc2 = removed.data;
+    const int ccnt = coefficients.size;
     const float gf = dftc[0] / dftgc[0];
 
     for (int h = 0; h < ccnt; h += 2) {
@@ -86,7 +99,10 @@ static inline void removeMean(float * VS_RESTRICT dftc, const float * dftgc, con
     }
 }
 
-static inline void addMean(float * VS_RESTRICT dftc, const int ccnt, const float * dftc2) noexcept {
+static inline void add_mean(DFTMutableFloatSpan coefficients, DFTConstFloatSpan removed) noexcept {
+    float* VS_RESTRICT dftc = coefficients.data;
+    const float* dftc2 = removed.data;
+    const int ccnt = coefficients.size;
     for (int h = 0; h < ccnt; h += 2) {
         dftc[h] += dftc2[h];
         dftc[h + 1] += dftc2[h + 1];
@@ -94,10 +110,10 @@ static inline void addMean(float * VS_RESTRICT dftc, const int ccnt, const float
 }
 
 template<int type>
-void filter_c(DFTFilterInput input) noexcept;
+void filter_scalar(DFTFilterInput input) noexcept;
 
 template<>
-void filter_c<0>(DFTFilterInput input) noexcept {
+void filter_scalar<0>(DFTFilterInput input) noexcept {
     float* dftc = input.coefficients.data;
     const float* sigmas = input.sigmas.data;
     const int ccnt = input.coefficients.size;
@@ -111,7 +127,7 @@ void filter_c<0>(DFTFilterInput input) noexcept {
 }
 
 template<>
-void filter_c<1>(DFTFilterInput input) noexcept {
+void filter_scalar<1>(DFTFilterInput input) noexcept {
     float* dftc = input.coefficients.data;
     const float* sigmas = input.sigmas.data;
     const int ccnt = input.coefficients.size;
@@ -124,7 +140,7 @@ void filter_c<1>(DFTFilterInput input) noexcept {
 }
 
 template<>
-void filter_c<2>(DFTFilterInput input) noexcept {
+void filter_scalar<2>(DFTFilterInput input) noexcept {
     float* dftc = input.coefficients.data;
     const float* sigmas = input.sigmas.data;
     const int ccnt = input.coefficients.size;
@@ -136,7 +152,7 @@ void filter_c<2>(DFTFilterInput input) noexcept {
 }
 
 template<>
-void filter_c<3>(DFTFilterInput input) noexcept {
+void filter_scalar<3>(DFTFilterInput input) noexcept {
     float* dftc = input.coefficients.data;
     const float* sigmas = input.sigmas.data;
     const float* pmin = input.pmins.data;
@@ -158,7 +174,7 @@ void filter_c<3>(DFTFilterInput input) noexcept {
 }
 
 template<>
-void filter_c<4>(DFTFilterInput input) noexcept {
+void filter_scalar<4>(DFTFilterInput input) noexcept {
     float* dftc = input.coefficients.data;
     const float* sigmas = input.sigmas.data;
     const float* pmin = input.pmins.data;
@@ -174,7 +190,7 @@ void filter_c<4>(DFTFilterInput input) noexcept {
 }
 
 template<>
-void filter_c<5>(DFTFilterInput input) noexcept {
+void filter_scalar<5>(DFTFilterInput input) noexcept {
     float* dftc = input.coefficients.data;
     const float* sigmas = input.sigmas.data;
     const int ccnt = input.coefficients.size;
@@ -189,7 +205,7 @@ void filter_c<5>(DFTFilterInput input) noexcept {
 }
 
 template<>
-void filter_c<6>(DFTFilterInput input) noexcept {
+void filter_scalar<6>(DFTFilterInput input) noexcept {
     float* dftc = input.coefficients.data;
     const float* sigmas = input.sigmas.data;
     const int ccnt = input.coefficients.size;
@@ -244,13 +260,13 @@ void cast(const float * ebp, float * VS_RESTRICT dstp, const int dstWidth, const
 
 template<typename T>
 static inline void dither(const float * ebp, T * VS_RESTRICT dstp, const int dstWidth, const int dstHeight, const int dstStride, const int ebpStride,
-                 const float multiplier, const int peak, const int dither_mode, std::mt19937 &rng, float *dither_buff) noexcept {
+                 const float multiplier, const int peak, const int dither_mode, std::mt19937 *rng, float *dither_buff) noexcept {
     cast(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, multiplier, peak);
 }
 
 template<>
 inline void dither<uint8_t>(const float * ebp, uint8_t * VS_RESTRICT dstp, const int dstWidth, const int dstHeight, const int dstStride, const int ebpStride,
-                 const float multiplier, const int peak, const int dither_mode, std::mt19937 &rng, float *dither_buff) noexcept {
+                 const float multiplier, const int peak, const int dither_mode, std::mt19937 *rng, float *dither_buff) noexcept {
     float* dc = dither_buff;
     float* dn = dither_buff + dstWidth;
     const float scale = (dither_mode - 1) + 0.5f;
@@ -262,7 +278,7 @@ inline void dither<uint8_t>(const float * ebp, uint8_t * VS_RESTRICT dstp, const
         for (int x = 0; x < dstWidth; ++x) {
             const int v = dither_mode == 1 ?
                 (int)(ebp[x] + dc[x] + 0.5f) :
-                (int)(ebp[x] + dist(rng) * scale - off + dc[x] + 0.5f);
+                (int)(ebp[x] + dist(*rng) * scale - off + dc[x] + 0.5f);
             dstp[x] = std::min(std::max(v, 0), 255);
             const float qerror = ebp[x] - dstp[x];
             if (x != 0)
@@ -282,7 +298,7 @@ inline void dither<uint8_t>(const float * ebp, uint8_t * VS_RESTRICT dstp, const
 }
 
 template<typename T>
-void func_0_c(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const DFTKernelContext& context) noexcept {
+void process_spatial_scalar(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const DFTKernelContext& context) noexcept {
     float * ebuff = context.scratch.slots[thread_id].ebuff.data();
     float * dftr = context.scratch.slots[thread_id].dftr.data();
     auto* dftc = context.scratch.slots[thread_id].dftc.data();
@@ -300,20 +316,32 @@ void func_0_c(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePl
 
     for (int y = 0; y < eheight; y += context.derived.step) {
         for (int x = 0; x <= width - context.block.spatial_size; x += context.derived.step) {
-            proc0(srcp + x, context.coefficients.window.data(), dftr, srcStride, context.block.spatial_size, context.sample.divisor);
+            load_windowed_block<T>(
+                DFTConstSampleBlock<T>{srcp + x, srcStride, context.block.spatial_size},
+                DFTConstFloatSpan{context.coefficients.window.data(), context.derived.block_area},
+                DFTMutableFloatSpan{dftr, context.derived.block_area},
+                context.sample.divisor
+            );
 
             context.fft.backend->execute_r2c(context.fft.forward, dftr, dftc);
             if (context.block.zero_mean)
-                removeMean(complex_float_data(dftc), complex_float_data(context.coefficients.window_dft.data()), context.derived.coefficient_count, complex_float_data(dftc2));
+                remove_mean(
+                    DFTMutableFloatSpan{complex_float_data(dftc), context.derived.coefficient_count},
+                    DFTConstFloatSpan{complex_float_data(context.coefficients.window_dft.data()), context.derived.coefficient_count},
+                    DFTMutableFloatSpan{complex_float_data(dftc2), context.derived.coefficient_count}
+                );
 
             context.filter_coefficients(make_filter_input(dftc, context));
 
             if (context.block.zero_mean)
-                addMean(complex_float_data(dftc), context.derived.coefficient_count, complex_float_data(dftc2));
+                add_mean(
+                    DFTMutableFloatSpan{complex_float_data(dftc), context.derived.coefficient_count},
+                    DFTConstFloatSpan{complex_float_data(dftc2), context.derived.coefficient_count}
+                );
             context.fft.backend->execute_c2r(context.fft.inverse, dftc, dftr);
 
             if (context.derived.transform_type & 1) // spatial overlapping
-                proc1(dftr, context.coefficients.window.data(), ebpSaved + x, context.block.spatial_size, ebpStride);
+                accumulate_overlap(dftr, context.coefficients.window.data(), ebpSaved + x, context.block.spatial_size, ebpStride);
             else
                 ebpSaved[x + context.derived.spatial_center * ebpStride + context.derived.spatial_center] = dftr[context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center] * context.coefficients.window.data()[context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center];
         }
@@ -328,13 +356,13 @@ void func_0_c(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePl
     T * dstp = reinterpret_cast<T *>(dst.data);
     const float * ebp = ebuff + ebpStride * ((height - dstHeight) / 2) + (width - dstWidth) / 2;
     if (context.block.dither_mode > 0)
-        dither(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, context.sample.multiplier, context.sample.peak, context.block.dither_mode, *context.scratch.slots[thread_id].rng, context.scratch.slots[thread_id].dither_buffer.data());
+        dither(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, context.sample.multiplier, context.sample.peak, context.block.dither_mode, context.scratch.slots[thread_id].rng.get(), context.scratch.slots[thread_id].dither_buffer.data());
     else
         cast(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, context.sample.multiplier, context.sample.peak);
 }
 
 template<typename T>
-void func_1_c(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const int pos, const DFTKernelContext& context) noexcept {
+void process_temporal_scalar(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const int pos, const DFTKernelContext& context) noexcept {
     float * ebuff = context.scratch.slots[thread_id].ebuff.data();
     float * dftr = context.scratch.slots[thread_id].dftr.data();
     auto* dftc = context.scratch.slots[thread_id].dftc.data();
@@ -355,20 +383,32 @@ void func_1_c(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePl
     for (int y = 0; y < eheight; y += context.derived.step) {
         for (int x = 0; x <= width - context.block.spatial_size; x += context.derived.step) {
             for (int z = 0; z < context.block.temporal_size; z++)
-                proc0(srcp[z] + x, context.coefficients.window.data() + context.derived.block_area * z, dftr + context.derived.block_area * z, srcStride, context.block.spatial_size, context.sample.divisor);
+                load_windowed_block<T>(
+                    DFTConstSampleBlock<T>{srcp[z] + x, srcStride, context.block.spatial_size},
+                    DFTConstFloatSpan{context.coefficients.window.data() + context.derived.block_area * z, context.derived.block_area},
+                    DFTMutableFloatSpan{dftr + context.derived.block_area * z, context.derived.block_area},
+                    context.sample.divisor
+                );
 
             context.fft.backend->execute_r2c(context.fft.forward, dftr, dftc);
             if (context.block.zero_mean)
-                removeMean(complex_float_data(dftc), complex_float_data(context.coefficients.window_dft.data()), context.derived.coefficient_count, complex_float_data(dftc2));
+                remove_mean(
+                    DFTMutableFloatSpan{complex_float_data(dftc), context.derived.coefficient_count},
+                    DFTConstFloatSpan{complex_float_data(context.coefficients.window_dft.data()), context.derived.coefficient_count},
+                    DFTMutableFloatSpan{complex_float_data(dftc2), context.derived.coefficient_count}
+                );
 
             context.filter_coefficients(make_filter_input(dftc, context));
 
             if (context.block.zero_mean)
-                addMean(complex_float_data(dftc), context.derived.coefficient_count, complex_float_data(dftc2));
+                add_mean(
+                    DFTMutableFloatSpan{complex_float_data(dftc), context.derived.coefficient_count},
+                    DFTConstFloatSpan{complex_float_data(dftc2), context.derived.coefficient_count}
+                );
             context.fft.backend->execute_c2r(context.fft.inverse, dftc, dftr);
 
             if (context.derived.transform_type & 1) // spatial overlapping
-                proc1(dftr + pos * context.derived.block_area, context.coefficients.window.data() + pos * context.derived.block_area, ebuff + y * ebpStride + x, context.block.spatial_size, ebpStride);
+                accumulate_overlap(dftr + pos * context.derived.block_area, context.coefficients.window.data() + pos * context.derived.block_area, ebuff + y * ebpStride + x, context.block.spatial_size, ebpStride);
             else
                 ebuff[(y + context.derived.spatial_center) * ebpStride + x + context.derived.spatial_center] = dftr[pos * context.derived.block_area + context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center] * context.coefficients.window.data()[pos * context.derived.block_area + context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center];
         }
@@ -383,31 +423,42 @@ void func_1_c(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePl
     T * dstp = reinterpret_cast<T *>(dst.data);
     const float * ebp = ebuff + ebpStride * ((height - dstHeight) / 2) + (width - dstWidth) / 2;
     if (context.block.dither_mode > 0)
-        dither(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, context.sample.multiplier, context.sample.peak, context.block.dither_mode, *context.scratch.slots[thread_id].rng, context.scratch.slots[thread_id].dither_buffer.data());
+        dither(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, context.sample.multiplier, context.sample.peak, context.block.dither_mode, context.scratch.slots[thread_id].rng.get(), context.scratch.slots[thread_id].dither_buffer.data());
     else
         cast(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, context.sample.multiplier, context.sample.peak);
 }
 
 template<typename T>
-void proc0_c(const T * s0, const float * s1, float * VS_RESTRICT d, const int p0, const int p1, const float divisor) noexcept {
-    proc0(s0, s1, d, p0, p1, divisor);
+void load_windowed_block_scalar(DFTConstSampleBlock<T> source, DFTConstFloatSpan window, DFTMutableFloatSpan destination, float divisor) noexcept {
+    load_windowed_block<T>(source, window, destination, divisor);
 }
-template void proc0_c<uint8_t>(const uint8_t * s0, const float * s1, float * VS_RESTRICT d, const int p0, const int p1, const float divisor) noexcept;
-template void proc0_c<uint16_t>(const uint16_t * s0, const float * s1, float * VS_RESTRICT d, const int p0, const int p1, const float divisor) noexcept;
-template void proc0_c<float>(const float * s0, const float * s1, float * VS_RESTRICT d, const int p0, const int p1, const float divisor) noexcept;
+template void load_windowed_block_scalar<uint8_t>(DFTConstSampleBlock<uint8_t>, DFTConstFloatSpan, DFTMutableFloatSpan, float) noexcept;
+template void load_windowed_block_scalar<uint16_t>(DFTConstSampleBlock<uint16_t>, DFTConstFloatSpan, DFTMutableFloatSpan, float) noexcept;
+template void load_windowed_block_scalar<float>(DFTConstSampleBlock<float>, DFTConstFloatSpan, DFTMutableFloatSpan, float) noexcept;
 
-void removeMean_c(float * VS_RESTRICT dftc, const float * dftgc, const int ccnt, float * VS_RESTRICT dftc2) noexcept {
-    removeMean(dftc, dftgc, ccnt, dftc2);
-}
-
-void dither_c(const float * ebp, uint8_t * VS_RESTRICT dstp, const int dstWidth, const int dstHeight, const int dstStride, const int ebpStride,
-                 const float multiplier, const int peak, const int dither_mode, std::mt19937 &rng, float *dither_buff) noexcept {
-    dither(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, multiplier, peak, dither_mode, rng, dither_buff);
+void remove_mean_scalar(DFTMutableFloatSpan coefficients, DFTConstFloatSpan reference, DFTMutableFloatSpan removed) noexcept {
+    remove_mean(coefficients, reference, removed);
 }
 
-template void func_0_c<uint8_t>(unsigned int, int, DFTPlaneBytes, DFTMutablePlaneBytes, const DFTKernelContext&) noexcept;
-template void func_0_c<uint16_t>(unsigned int, int, DFTPlaneBytes, DFTMutablePlaneBytes, const DFTKernelContext&) noexcept;
-template void func_0_c<float>(unsigned int, int, DFTPlaneBytes, DFTMutablePlaneBytes, const DFTKernelContext&) noexcept;
-template void func_1_c<uint8_t>(unsigned int, int, DFTPlaneBytes, DFTMutablePlaneBytes, int, const DFTKernelContext&) noexcept;
-template void func_1_c<uint16_t>(unsigned int, int, DFTPlaneBytes, DFTMutablePlaneBytes, int, const DFTKernelContext&) noexcept;
-template void func_1_c<float>(unsigned int, int, DFTPlaneBytes, DFTMutablePlaneBytes, int, const DFTKernelContext&) noexcept;
+void dither_u8_scalar(DFTConstFloatPlane source, DFTMutableBytePlane destination, DFTDitherContext context) noexcept {
+    dither(
+        source.data,
+        destination.data,
+        destination.width,
+        destination.height,
+        destination.stride_elements,
+        source.stride_elements,
+        context.multiplier,
+        context.peak,
+        context.mode,
+        context.rng,
+        context.buffer.data
+    );
+}
+
+template void process_spatial_scalar<uint8_t>(unsigned int, int, DFTPlaneBytes, DFTMutablePlaneBytes, const DFTKernelContext&) noexcept;
+template void process_spatial_scalar<uint16_t>(unsigned int, int, DFTPlaneBytes, DFTMutablePlaneBytes, const DFTKernelContext&) noexcept;
+template void process_spatial_scalar<float>(unsigned int, int, DFTPlaneBytes, DFTMutablePlaneBytes, const DFTKernelContext&) noexcept;
+template void process_temporal_scalar<uint8_t>(unsigned int, int, DFTPlaneBytes, DFTMutablePlaneBytes, int, const DFTKernelContext&) noexcept;
+template void process_temporal_scalar<uint16_t>(unsigned int, int, DFTPlaneBytes, DFTMutablePlaneBytes, int, const DFTKernelContext&) noexcept;
+template void process_temporal_scalar<float>(unsigned int, int, DFTPlaneBytes, DFTMutablePlaneBytes, int, const DFTKernelContext&) noexcept;

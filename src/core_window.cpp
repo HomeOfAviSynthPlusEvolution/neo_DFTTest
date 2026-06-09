@@ -2,50 +2,6 @@
 
 #include <stdexcept>
 
-template<typename T>
-static void copyPad(int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const DFTKernelContext& context) noexcept {
-    int srcWidth = context.planes.width[plane];
-    int srcHeight = context.planes.height[plane];
-    int dstWidth = context.planes.pad_width[plane];
-    int dstHeight = context.planes.pad_height[plane];
-    int dstStrideBytes = dst.stride_bytes;
-    int dstStride = dst.stride_bytes / sizeof(T);
-
-    const int offy = (dstHeight - srcHeight) / 2;
-    const int offx = (dstWidth - srcWidth) / 2;
-
-    const unsigned char * scrp0 = src.data;
-    unsigned char * dstp0 = dst.data + dstStrideBytes * offy + offx * sizeof(T);
-    for (int h = 0; h < srcHeight; h++)
-    {
-        memcpy(dstp0, scrp0, srcWidth * sizeof(T));
-        scrp0 += src.stride_bytes;
-        dstp0 += dstStrideBytes;
-    }
-    
-    T * dstp = reinterpret_cast<T *>(dst.data) + dstStride * offy;
-
-    for (int y = offy; y < srcHeight + offy; y++) {
-        int w = offx * 2;
-        for (int x = 0; x < offx; x++, w--)
-            dstp[x] = dstp[w];
-
-        w = offx + srcWidth - 2;
-        for (int x = offx + srcWidth; x < dstWidth; x++, w--)
-            dstp[x] = dstp[w];
-
-        dstp += dstStride;
-    }
-
-    int w = offy * 2;
-    for (int y = 0; y < offy; y++, w--)
-        memcpy(dst.data + dstStrideBytes * y, dst.data + dstStrideBytes * w, dstWidth * sizeof(T));
-
-    w = offy + srcHeight - 2;
-    for (int y = offy + srcHeight; y < dstHeight; y++, w--)
-        memcpy(dst.data + dstStrideBytes * y, dst.data + dstStrideBytes * w, dstWidth * sizeof(T));
-}
-
 static double besselI0(double p) noexcept {
     p /= 2.;
     double n = 1., t = 1., d = 1.;
@@ -195,7 +151,9 @@ std::vector<float> parseSigmaLocation(const std::vector<float>& s, const float s
     }
 }
 
-float interp(const float pf, const float * pv, const int cnt) noexcept {
+float interp(const float pf, const DFTConstFloatSpan points) noexcept {
+    const float* pv = points.data;
+    const int cnt = points.size / 2;
     int lidx = 0;
     for (int i = cnt - 1; i >= 0; i--) {
         if (pv[i * 2] <= pf) {
@@ -224,7 +182,7 @@ float interp(const float pf, const float * pv, const int cnt) noexcept {
     return pv[lidx * 2 + 1] * (1.0f - tf) + pv[hidx * 2 + 1] * tf;
 }
 
-float getSVal(const int pos, const int len, const float * pv, const int cnt, float & pf) noexcept {
+float getSVal(const int pos, const int len, const DFTConstFloatSpan points, float & pf) noexcept {
     if (len == 1) {
         pf = 0.0f;
         return 1.0f;
@@ -236,58 +194,5 @@ float getSVal(const int pos, const int len, const float * pv, const int cnt, flo
     else
         pf = pos / static_cast<float>(ld2);
 
-    return interp(pf, pv, cnt);
-}
-
-static DFTFilterCoefficientsFunction selectCFilter(const unsigned ftype, const DFTBlockSettings& block) noexcept {
-    if (ftype == 0) {
-        if (std::abs(block.f0_beta - 1.0f) < 0.00005f)
-            return filter_c<0>;
-        else if (std::abs(block.f0_beta - 0.5f) < 0.00005f)
-            return filter_c<6>;
-        else
-            return filter_c<5>;
-    } else if (ftype == 1) {
-        return filter_c<1>;
-    } else if (ftype == 2) {
-        return filter_c<2>;
-    } else if (ftype == 3) {
-        return filter_c<3>;
-    }
-
-    return filter_c<4>;
-}
-
-static DFTKernelDispatch selectCDispatch(const unsigned ftype, const DFTClipFormat& format, const DFTBlockSettings& block) noexcept {
-    DFTKernelDispatch kernels {};
-    kernels.filter_coefficients = selectCFilter(ftype, block);
-
-    if (format.bytes_per_sample == 1) {
-        kernels.copy_pad = copyPad<uint8_t>;
-        kernels.process_spatial = func_0_c<uint8_t>;
-        kernels.process_temporal = func_1_c<uint8_t>;
-    } else if (format.bytes_per_sample == 2) {
-        kernels.copy_pad = copyPad<uint16_t>;
-        kernels.process_spatial = func_0_c<uint16_t>;
-        kernels.process_temporal = func_1_c<uint16_t>;
-    } else {
-        kernels.copy_pad = copyPad<float>;
-        kernels.process_spatial = func_0_c<float>;
-        kernels.process_temporal = func_1_c<float>;
-    }
-
-    return kernels;
-}
-
-DFTKernelDispatch selectFunctions(const unsigned ftype, const unsigned opt, const DFTClipFormat& format, const DFTBlockSettings& block) noexcept {
-    DFTKernelDispatch kernels = selectCDispatch(ftype, format, block);
-
-    if (opt != 1) {
-        DFTKernelDispatch highway = neo_dfttest::GetHighwayDispatch(ftype, format, block);
-        kernels.filter_coefficients = highway.filter_coefficients;
-        kernels.process_spatial = highway.process_spatial;
-        kernels.process_temporal = highway.process_temporal;
-    }
-
-    return kernels;
+    return interp(pf, points);
 }

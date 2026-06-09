@@ -1,14 +1,14 @@
 // For highway, we need to be able to include this file multiple times.
 #undef HWY_TARGET_INCLUDE
-#define HWY_TARGET_INCLUDE "src/core_hwy.cpp"
+#define HWY_TARGET_INCLUDE "src/core_simd_hwy.cpp"
 
 #include "hwy/foreach_target.h"
 #include "hwy/highway.h"
 #include "hwy/contrib/math/math-inl.h" // For Pow, Sqrt, etc.
 #include "hwy/aligned_allocator.h"
 
-#include "dft_common.h" // Contains DFTTestData struct and FFTW types
-#include "core.h" // For removeMean_c and dither_c declarations
+#include "dft_common.h"
+#include "core.h"
 #include <algorithm>
 #include <numeric>
 #include <type_traits> // Required for std::is_same_v
@@ -24,9 +24,9 @@ namespace hn = hwy::HWY_NAMESPACE;
 // HWY IMPLEMENTATIONS OF CORE FUNCTIONS
 // =============================================================================
 
-// Implements Proc0 using Highway
+// Implements LoadWindowedBlock using Highway
 template<typename T>
-void Proc0(const T* _s0, const float* _s1, float* d, const int p0, const int p1, const float divisor) {
+void LoadWindowedBlock(const T* _s0, const float* _s1, float* d, const int p0, const int p1, const float divisor) {
     using D = hn::ScalableTag<float>;
     constexpr D d_f; // Using d_f for float
     const size_t N = hn::Lanes(d_f);
@@ -64,8 +64,8 @@ void Proc0(const T* _s0, const float* _s1, float* d, const int p0, const int p1,
     }
 }
 
-// Implements Proc1 using Highway
-inline void Proc1(const float* _s0, const float* _s1, float* _d, const int p0, const int p1) {
+// Implements AccumulateOverlap using Highway
+inline void AccumulateOverlap(const float* _s0, const float* _s1, float* _d, const int p0, const int p1) {
     using D = hn::ScalableTag<float>;
     constexpr D d_f;
     const size_t N = hn::Lanes(d_f);
@@ -84,8 +84,8 @@ inline void Proc1(const float* _s0, const float* _s1, float* _d, const int p0, c
     }
 }
 
-// Implements Proc1Partial using Highway
-inline void Proc1Partial(const float* _s0, const float* _s1, float* _d, const int p0, const int p1) {
+// Implements AccumulateOverlapPartial using Highway
+inline void AccumulateOverlapPartial(const float* _s0, const float* _s1, float* _d, const int p0, const int p1) {
     using D = hn::ScalableTag<float>;
     constexpr D d_f;
     const size_t N = hn::Lanes(d_f);
@@ -125,7 +125,7 @@ HWY_INLINE V RcpNr(const D d, V v) {
 
 // Implements the filter logic using Highway
 template<int type>
-void Filter(DFTFilterInput input) {
+void FilterHighway(DFTFilterInput input) {
     float* dftc = input.coefficients.data;
     const float* _sigmas = input.sigmas.data;
     const float* _pmin = input.pmins.data;
@@ -281,16 +281,20 @@ void Cast(const float * ebp, T * dstp, const int dstWidth, const int dstHeight, 
 // Implements Dither using Highway
 template<typename T>
 void Dither(const float * ebp, T * VS_RESTRICT dstp, const int dstWidth, const int dstHeight, const int dstStride, const int ebpStride,
-                 const float multiplier, const int peak, const int dither_mode, std::mt19937& rng, float *dither_buff) noexcept {
+                 const float multiplier, const int peak, const int dither_mode, std::mt19937* rng, float *dither_buff) noexcept {
     if constexpr (std::is_same_v<T, uint8_t>) {
-        dither_c(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, multiplier, peak, dither_mode, rng, dither_buff);
+        dither_u8_scalar(
+            DFTConstFloatPlane{ebp, dstWidth, dstHeight, ebpStride},
+            DFTMutableBytePlane{dstp, dstWidth, dstHeight, dstStride},
+            DFTDitherContext{multiplier, peak, dither_mode, rng, DFTMutableFloatSpan{dither_buff, dstWidth * 2}}
+        );
     } else {
         Cast(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, multiplier, peak);
     }
 }
 
-// Highway-optimized RemoveMean
-void RemoveMean(float * dftc, const float * dftgc, const int ccnt, float * dftc2) {
+// Highway-optimized RemoveMeanHighway
+void RemoveMeanHighway(float * dftc, const float * dftgc, const int ccnt, float * dftc2) {
     using D = hn::ScalableTag<float>;
     constexpr D d_f;
     const size_t N = hn::Lanes(d_f);
@@ -310,8 +314,8 @@ void RemoveMean(float * dftc, const float * dftgc, const int ccnt, float * dftc2
     }
 }
 
-// Highway-optimized AddMean
-void AddMean(float * dftc, const int ccnt, const float * dftc2) {
+// Highway-optimized AddMeanHighway
+void AddMeanHighway(float * dftc, const int ccnt, const float * dftc2) {
     using D = hn::ScalableTag<float>;
     constexpr D d_f;
     const size_t N = hn::Lanes(d_f);
@@ -322,9 +326,9 @@ void AddMean(float * dftc, const int ccnt, const float * dftc2) {
     }
 }
 
-// Implements func_0 functionality using Highway
+// Implements spatial processing using Highway
 template<typename T>
-void Func0(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const DFTKernelContext& context) {
+void ProcessSpatialHighway(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const DFTKernelContext& context) {
     float * ebuff = context.scratch.slots[thread_id].ebuff.data();
     const int width = context.planes.pad_width[plane];
     const int height = context.planes.pad_height[plane];
@@ -348,25 +352,25 @@ void Func0(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePlane
 
         for (int y = block_start; y < block_end; y += context.derived.step) {
             for (int x = 0; x <= width - context.block.spatial_size; x += context.derived.step) {
-                Proc0(srcp + x, context.coefficients.window.data(), dftr, srcStride, context.block.spatial_size, context.sample.divisor);
+                LoadWindowedBlock(srcp + x, context.coefficients.window.data(), dftr, srcStride, context.block.spatial_size, context.sample.divisor);
 
                 context.fft.backend->execute_r2c(context.fft.forward, dftr, dftc);
                 if (context.block.zero_mean)
-                    RemoveMean(complex_float_data(dftc), complex_float_data(context.coefficients.window_dft.data()), context.derived.coefficient_count, complex_float_data(dftc2));
+                    RemoveMeanHighway(complex_float_data(dftc), complex_float_data(context.coefficients.window_dft.data()), context.derived.coefficient_count, complex_float_data(dftc2));
 
                 context.filter_coefficients(make_filter_input(dftc, context));
 
                 if (context.block.zero_mean)
-                    AddMean(complex_float_data(dftc), context.derived.coefficient_count, complex_float_data(dftc2));
+                    AddMeanHighway(complex_float_data(dftc), context.derived.coefficient_count, complex_float_data(dftc2));
                 context.fft.backend->execute_c2r(context.fft.inverse, dftc, dftr);
 
                 if (context.derived.transform_type & 1) { // spatial overlapping
                     using D_f = hn::ScalableTag<float>;
                     const size_t N_f = hn::Lanes(D_f()); // Get lane count for float
                     if (!(context.block.spatial_size & (N_f - 1))) // Check alignment relative to Highway's float vector width
-                         Proc1(dftr, context.coefficients.window.data(), ebpSaved + x, context.block.spatial_size, ebpStride);
+                         AccumulateOverlap(dftr, context.coefficients.window.data(), ebpSaved + x, context.block.spatial_size, ebpStride);
                     else
-                         Proc1Partial(dftr, context.coefficients.window.data(), ebpSaved + x, context.block.spatial_size, ebpStride);
+                         AccumulateOverlapPartial(dftr, context.coefficients.window.data(), ebpSaved + x, context.block.spatial_size, ebpStride);
                 }
                 else
                     ebpSaved[x + context.derived.spatial_center * ebpStride + context.derived.spatial_center] = dftr[context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center] * context.coefficients.window.data()[context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center];
@@ -384,14 +388,14 @@ void Func0(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePlane
     const float * ebp = ebuff + ebpStride * ((height - dstHeight) / 2) + (width - dstWidth) / 2;
     
     if (context.block.dither_mode > 0)
-        Dither(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, context.sample.multiplier, context.sample.peak, context.block.dither_mode, *context.scratch.slots[thread_id].rng, context.scratch.slots[thread_id].dither_buffer.data());
+        Dither(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, context.sample.multiplier, context.sample.peak, context.block.dither_mode, context.scratch.slots[thread_id].rng.get(), context.scratch.slots[thread_id].dither_buffer.data());
     else
         Cast(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, context.sample.multiplier, context.sample.peak);
 }
 
-// Implements func_1 functionality using Highway (temporal processing)
+// Implements temporal processing using Highway
 template<typename T>
-void Func1(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const int pos, const DFTKernelContext& context) {
+void ProcessTemporalHighway(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const int pos, const DFTKernelContext& context) {
     float * ebuff = context.scratch.slots[thread_id].ebuff.data();
     const int width = context.planes.pad_width[plane];
     const int height = context.planes.pad_height[plane];
@@ -423,25 +427,25 @@ void Func1(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePlane
         for (int y = block_start; y < block_end; y += context.derived.step) {
             for (int x = 0; x <= width - context.block.spatial_size; x += context.derived.step) {
                 for (int z = 0; z < context.block.temporal_size; z++)
-                    Proc0(srcp[z] + x, context.coefficients.window.data() + context.derived.block_area * z, dftr + context.derived.block_area * z, srcStride, context.block.spatial_size, context.sample.divisor);
+                    LoadWindowedBlock(srcp[z] + x, context.coefficients.window.data() + context.derived.block_area * z, dftr + context.derived.block_area * z, srcStride, context.block.spatial_size, context.sample.divisor);
 
                 context.fft.backend->execute_r2c(context.fft.forward, dftr, dftc);
                 if (context.block.zero_mean)
-                    RemoveMean(complex_float_data(dftc), complex_float_data(context.coefficients.window_dft.data()), context.derived.coefficient_count, complex_float_data(dftc2));
+                    RemoveMeanHighway(complex_float_data(dftc), complex_float_data(context.coefficients.window_dft.data()), context.derived.coefficient_count, complex_float_data(dftc2));
 
                 context.filter_coefficients(make_filter_input(dftc, context));
 
                 if (context.block.zero_mean)
-                    AddMean(complex_float_data(dftc), context.derived.coefficient_count, complex_float_data(dftc2));
+                    AddMeanHighway(complex_float_data(dftc), context.derived.coefficient_count, complex_float_data(dftc2));
                 context.fft.backend->execute_c2r(context.fft.inverse, dftc, dftr);
 
                 if (context.derived.transform_type & 1) { // spatial overlapping
                     using D_f = hn::ScalableTag<float>;
                     const size_t N_f = hn::Lanes(D_f());
                     if (!(context.block.spatial_size & (N_f - 1)))
-                        Proc1(dftr + pos * context.derived.block_area, context.coefficients.window.data() + pos * context.derived.block_area, ebuff + y * ebpStride + x, context.block.spatial_size, ebpStride);
+                        AccumulateOverlap(dftr + pos * context.derived.block_area, context.coefficients.window.data() + pos * context.derived.block_area, ebuff + y * ebpStride + x, context.block.spatial_size, ebpStride);
                     else
-                        Proc1Partial(dftr + pos * context.derived.block_area, context.coefficients.window.data() + pos * context.derived.block_area, ebuff + y * ebpStride + x, context.block.spatial_size, ebpStride);
+                        AccumulateOverlapPartial(dftr + pos * context.derived.block_area, context.coefficients.window.data() + pos * context.derived.block_area, ebuff + y * ebpStride + x, context.block.spatial_size, ebpStride);
                 }
                 else
                     ebuff[(y + context.derived.spatial_center) * ebpStride + x + context.derived.spatial_center] = dftr[pos * context.derived.block_area + context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center] * context.coefficients.window.data()[pos * context.derived.block_area + context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center];
@@ -462,7 +466,7 @@ void Func1(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePlane
     T * dstp = reinterpret_cast<T *>(dst.data);
     const float * ebp = ebuff + ebpStride * ((height - dstHeight) / 2) + (width - dstWidth) / 2;
     if (context.block.dither_mode > 0)
-        Dither(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, context.sample.multiplier, context.sample.peak, context.block.dither_mode, *context.scratch.slots[thread_id].rng, context.scratch.slots[thread_id].dither_buffer.data());
+        Dither(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, context.sample.multiplier, context.sample.peak, context.block.dither_mode, context.scratch.slots[thread_id].rng.get(), context.scratch.slots[thread_id].dither_buffer.data());
     else
         Cast(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, context.sample.multiplier, context.sample.peak);
 }
@@ -478,52 +482,52 @@ HWY_AFTER_NAMESPACE();
 #include "hwy/per_target.h"
 namespace neo_dfttest {
 
-HWY_EXPORT_T(Func0_u8, Func0<uint8_t>);
-HWY_EXPORT_T(Func0_u16, Func0<uint16_t>);
-HWY_EXPORT_T(Func0_f32, Func0<float>);
+HWY_EXPORT_T(ProcessSpatial_u8, ProcessSpatialHighway<uint8_t>);
+HWY_EXPORT_T(ProcessSpatial_u16, ProcessSpatialHighway<uint16_t>);
+HWY_EXPORT_T(ProcessSpatial_f32, ProcessSpatialHighway<float>);
 
-HWY_EXPORT_T(Func1_u8, Func1<uint8_t>);
-HWY_EXPORT_T(Func1_u16, Func1<uint16_t>);
-HWY_EXPORT_T(Func1_f32, Func1<float>);
+HWY_EXPORT_T(ProcessTemporal_u8, ProcessTemporalHighway<uint8_t>);
+HWY_EXPORT_T(ProcessTemporal_u16, ProcessTemporalHighway<uint16_t>);
+HWY_EXPORT_T(ProcessTemporal_f32, ProcessTemporalHighway<float>);
 
-HWY_EXPORT_T(Filter_Type0, Filter<0>);
-HWY_EXPORT_T(Filter_Type1, Filter<1>);
-HWY_EXPORT_T(Filter_Type2, Filter<2>);
-HWY_EXPORT_T(Filter_Type3, Filter<3>);
-HWY_EXPORT_T(Filter_Type4, Filter<4>);
-HWY_EXPORT_T(Filter_Type5, Filter<5>);
-HWY_EXPORT_T(Filter_Type6, Filter<6>);
+HWY_EXPORT_T(FilterHighway_Type0, FilterHighway<0>);
+HWY_EXPORT_T(FilterHighway_Type1, FilterHighway<1>);
+HWY_EXPORT_T(FilterHighway_Type2, FilterHighway<2>);
+HWY_EXPORT_T(FilterHighway_Type3, FilterHighway<3>);
+HWY_EXPORT_T(FilterHighway_Type4, FilterHighway<4>);
+HWY_EXPORT_T(FilterHighway_Type5, FilterHighway<5>);
+HWY_EXPORT_T(FilterHighway_Type6, FilterHighway<6>);
 
 using FilterFunc = void (*)(DFTFilterInput input);
 
-static FilterFunc GetHighwayFilter(unsigned ftype, float f0beta) {
+static FilterFunc select_highway_filter(unsigned ftype, float f0beta) {
     if (ftype == 0) {
-        if (std::abs(f0beta - 1.0f) < 0.00005f) return HWY_DYNAMIC_POINTER(Filter_Type0);
-        else if (std::abs(f0beta - 0.5f) < 0.00005f) return HWY_DYNAMIC_POINTER(Filter_Type6);
-        else return HWY_DYNAMIC_POINTER(Filter_Type5);
-    } else if (ftype == 1) return HWY_DYNAMIC_POINTER(Filter_Type1);
-    else if (ftype == 2) return HWY_DYNAMIC_POINTER(Filter_Type2);
-    else if (ftype == 3) return HWY_DYNAMIC_POINTER(Filter_Type3);
-    else return HWY_DYNAMIC_POINTER(Filter_Type4);
+        if (std::abs(f0beta - 1.0f) < 0.00005f) return HWY_DYNAMIC_POINTER(FilterHighway_Type0);
+        else if (std::abs(f0beta - 0.5f) < 0.00005f) return HWY_DYNAMIC_POINTER(FilterHighway_Type6);
+        else return HWY_DYNAMIC_POINTER(FilterHighway_Type5);
+    } else if (ftype == 1) return HWY_DYNAMIC_POINTER(FilterHighway_Type1);
+    else if (ftype == 2) return HWY_DYNAMIC_POINTER(FilterHighway_Type2);
+    else if (ftype == 3) return HWY_DYNAMIC_POINTER(FilterHighway_Type3);
+    else return HWY_DYNAMIC_POINTER(FilterHighway_Type4);
 }
 
-static DFTProcessSpatialFunction GetHighwayFunc0(const DFTClipFormat& format) {
-    if (format.bytes_per_sample == 1) return HWY_DYNAMIC_POINTER(Func0_u8);
-    if (format.bytes_per_sample == 2) return HWY_DYNAMIC_POINTER(Func0_u16);
-    return HWY_DYNAMIC_POINTER(Func0_f32);
+static DFTProcessSpatialFunction select_highway_spatial_processor(const DFTClipFormat& format) {
+    if (format.bytes_per_sample == 1) return HWY_DYNAMIC_POINTER(ProcessSpatial_u8);
+    if (format.bytes_per_sample == 2) return HWY_DYNAMIC_POINTER(ProcessSpatial_u16);
+    return HWY_DYNAMIC_POINTER(ProcessSpatial_f32);
 }
 
-static DFTProcessTemporalFunction GetHighwayFunc1(const DFTClipFormat& format) {
-    if (format.bytes_per_sample == 1) return HWY_DYNAMIC_POINTER(Func1_u8);
-    if (format.bytes_per_sample == 2) return HWY_DYNAMIC_POINTER(Func1_u16);
-    return HWY_DYNAMIC_POINTER(Func1_f32);
+static DFTProcessTemporalFunction select_highway_temporal_processor(const DFTClipFormat& format) {
+    if (format.bytes_per_sample == 1) return HWY_DYNAMIC_POINTER(ProcessTemporal_u8);
+    if (format.bytes_per_sample == 2) return HWY_DYNAMIC_POINTER(ProcessTemporal_u16);
+    return HWY_DYNAMIC_POINTER(ProcessTemporal_f32);
 }
 
-DFTKernelDispatch GetHighwayDispatch(unsigned ftype, const DFTClipFormat& format, const DFTBlockSettings& block) {
+DFTKernelDispatch make_highway_dispatch(unsigned ftype, const DFTClipFormat& format, const DFTBlockSettings& block) {
     DFTKernelDispatch kernels {};
-    kernels.filter_coefficients = GetHighwayFilter(ftype, block.f0_beta);
-    kernels.process_spatial = GetHighwayFunc0(format);
-    kernels.process_temporal = GetHighwayFunc1(format);
+    kernels.filter_coefficients = select_highway_filter(ftype, block.f0_beta);
+    kernels.process_spatial = select_highway_spatial_processor(format);
+    kernels.process_temporal = select_highway_temporal_processor(format);
     return kernels;
 }
 
