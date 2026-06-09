@@ -2141,6 +2141,1143 @@
       "sha256": "f6770e67ca0d47827f3e64fcd18485fe4468d3c3ebc220597035fc1382c4c61f",
       "source": "blank_y8_64x48_9f",
       "tier": "compat"
+    },
+    {
+      "case": "compat_yuv422p8_planes_uv_ftype2",
+      "frame": 0,
+      "host": "vs",
+      "metadata": {
+        "format": {
+          "bits_per_sample": 8,
+          "bytes_per_sample": 1,
+          "color_family": 3,
+          "id": 805830912,
+          "name": "YUV422P8",
+          "num_planes": 3,
+          "sample_type": 0,
+          "subsampling_h": 0,
+          "subsampling_w": 1
+        },
+        "frames": 9,
+        "height": 48,
+        "planes": [
+          {
+            "height": 48,
+            "name": "Y",
+            "row_bytes": 64
+          },
+          {
+            "height": 48,
+            "name": "U",
+            "row_bytes": 32
+          },
+          {
+            "height": 48,
+            "name": "V",
+            "row_bytes": 32
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "ftype": 2,
+        "planes": [
+          1,
+          2
+        ],
+        "sbsize": 8,
+        "sigma": 5.0,
+        "sosize": 4,
+        "tbsize": 1,
+        "threads": 1
+      },
+      "sha256": "4f63916266b717bc8824e4045926403b20fa49f44efb8935bcb86c2fe79592da",
+      "source": "blank_yuv422p8_64x48_9f",
+      "tier": "compat"
+    },
+    {
+      "case": "compat_yuv422p8_planes_uv_ftype2",
+      "frame": 4,
+      "host": "vs",
+      "metadata": {
+        "format": {
+          "bits_per_sample": 8,
+          "bytes_per_sample": 1,
+          "color_family": 3,
+          "id": 805830912,
+          "name": "YUV422P8",
+          "num_planes": 3,
+          "sample_type": 0,
+          "subsampling_h": 0,
+          "subsampling_w": 1
+        },
+        "frames": 9,
+        "height": 48,
+        "planes": [
+          {
+            "height": 48,
+            "name": "Y",
+            "row_bytes": 64
+          },
+          {
+            "height": 48,
+            "name": "U",
+            "row_bytes": 32
+          },
+          {
+            "height": 48,
+            "name": "V",
+            "row_bytes": 32
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "ftype": 2,
+        "planes": [
+          1,
+          2
+        ],
+        "sbsize": 8,
+        "sigma": 5.0,
+        "sosize": 4,
+        "tbsize": 1,
+        "threads": 1
+      },
+      "sha256": "4f63916266b717bc8824e4045926403b20fa49f44efb8935bcb86c2fe79592da",
+      "source": "blank_yuv422p8_64x48_9f",
+      "tier": "compat"
+    },
+    {
+      "case": "compat_yuv422p8_planes_uv_ftype2",
+      "frame": 8,
+      "host": "vs",
+      "metadata": {
+        "format": {
+          "bits_per_sample": 8,
+          "bytes_per_sample": 1,
+          "color_family": 3,
+          "id": 805830912,
+          "name": "YUV422P8",
+          "num_planes": 3,
+          "sample_type": 0,
+          "subsampling_h": 0,
+          "subsampling_w": 1
+        },
+        "frames": 9,
+        "height": 48,
+        "planes": [
+          {
+            "height": 48,
+            "name": "Y",
+            "row_bytes": 64
+          },
+          {
+            "height": 48,
+            "name": "U",
+            "row_bytes": 32
+          },
+          {
+            "height": 48,
+            "name": "V",
+            "row_bytes": 32
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "ftype": 2,
+        "planes": [
+          1,
+          2
+        ],
+        "sbsize": 8,
+        "sigma": 5.0,
+        "sosize": 4,
+        "tbsize": 1,
+        "threads": 1
+      },
+      "sha256": "4f63916266b717bc8824e4045926403b20fa49f44efb8935bcb86c2fe79592da",
+      "source": "blank_yuv422p8_64x48_9f",
+      "tier": "compat"
+    },
+    {
+      "case": "compat_yuv422p8_planes_uv_ftype2",
+      "frame": 0,
+      "host": "avs",
+      "metadata": {
+        "bits_per_sample": 8,
+        "bytes_per_sample": 1,
+        "frames": 9,
+        "height": 48,
+        "pixel_type": -1610611960,
+        "planes": [
+          {
+            "height": 48,
+            "name": "Y",
+            "row_bytes": 64
+          },
+          {
+            "height": 48,
+            "name": "U",
+            "row_bytes": 32
+          },
+          {
+            "height": 48,
+            "name": "V",
+            "row_bytes": 32
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "ftype": 2,
+        "sbsize": 8,
+        "sigma": 5.0,
+        "sosize": 4,
+        "tbsize": 1,
+        "threads": 1,
+        "u": 3,
+        "v": 3,
+        "y": 2
+      },
+      "sha256": "4f63916266b717bc8824e4045926403b20fa49f44efb8935bcb86c2fe79592da",
+      "source": "blank_yuv422p8_64x48_9f",
+      "tier": "compat"
+    },
+    {
+      "case": "compat_yuv422p8_planes_uv_ftype2",
+      "frame": 4,
+      "host": "avs",
+      "metadata": {
+        "bits_per_sample": 8,
+        "bytes_per_sample": 1,
+        "frames": 9,
+        "height": 48,
+        "pixel_type": -1610611960,
+        "planes": [
+          {
+            "height": 48,
+            "name": "Y",
+            "row_bytes": 64
+          },
+          {
+            "height": 48,
+            "name": "U",
+            "row_bytes": 32
+          },
+          {
+            "height": 48,
+            "name": "V",
+            "row_bytes": 32
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "ftype": 2,
+        "sbsize": 8,
+        "sigma": 5.0,
+        "sosize": 4,
+        "tbsize": 1,
+        "threads": 1,
+        "u": 3,
+        "v": 3,
+        "y": 2
+      },
+      "sha256": "4f63916266b717bc8824e4045926403b20fa49f44efb8935bcb86c2fe79592da",
+      "source": "blank_yuv422p8_64x48_9f",
+      "tier": "compat"
+    },
+    {
+      "case": "compat_yuv422p8_planes_uv_ftype2",
+      "frame": 8,
+      "host": "avs",
+      "metadata": {
+        "bits_per_sample": 8,
+        "bytes_per_sample": 1,
+        "frames": 9,
+        "height": 48,
+        "pixel_type": -1610611960,
+        "planes": [
+          {
+            "height": 48,
+            "name": "Y",
+            "row_bytes": 64
+          },
+          {
+            "height": 48,
+            "name": "U",
+            "row_bytes": 32
+          },
+          {
+            "height": 48,
+            "name": "V",
+            "row_bytes": 32
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "ftype": 2,
+        "sbsize": 8,
+        "sigma": 5.0,
+        "sosize": 4,
+        "tbsize": 1,
+        "threads": 1,
+        "u": 3,
+        "v": 3,
+        "y": 2
+      },
+      "sha256": "4f63916266b717bc8824e4045926403b20fa49f44efb8935bcb86c2fe79592da",
+      "source": "blank_yuv422p8_64x48_9f",
+      "tier": "compat"
+    },
+    {
+      "case": "compat_yuv420p10_ftype2",
+      "frame": 0,
+      "host": "vs",
+      "metadata": {
+        "format": {
+          "bits_per_sample": 10,
+          "bytes_per_sample": 2,
+          "color_family": 3,
+          "id": 805961985,
+          "name": "YUV420P10",
+          "num_planes": 3,
+          "sample_type": 0,
+          "subsampling_h": 1,
+          "subsampling_w": 1
+        },
+        "frames": 9,
+        "height": 48,
+        "planes": [
+          {
+            "height": 48,
+            "name": "Y",
+            "row_bytes": 128
+          },
+          {
+            "height": 24,
+            "name": "U",
+            "row_bytes": 64
+          },
+          {
+            "height": 24,
+            "name": "V",
+            "row_bytes": 64
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "ftype": 2,
+        "pmax": 500.0,
+        "pmin": 0.1,
+        "sbsize": 8,
+        "sigma": 5.0,
+        "sosize": 4,
+        "tbsize": 1,
+        "threads": 1
+      },
+      "sha256": "34d8dd6ac2acf4087139edef6d489448c53c14c883e79b49f302e8a635fe421f",
+      "source": "blank_yuv420p10_64x48_9f",
+      "tier": "compat"
+    },
+    {
+      "case": "compat_yuv420p10_ftype2",
+      "frame": 4,
+      "host": "vs",
+      "metadata": {
+        "format": {
+          "bits_per_sample": 10,
+          "bytes_per_sample": 2,
+          "color_family": 3,
+          "id": 805961985,
+          "name": "YUV420P10",
+          "num_planes": 3,
+          "sample_type": 0,
+          "subsampling_h": 1,
+          "subsampling_w": 1
+        },
+        "frames": 9,
+        "height": 48,
+        "planes": [
+          {
+            "height": 48,
+            "name": "Y",
+            "row_bytes": 128
+          },
+          {
+            "height": 24,
+            "name": "U",
+            "row_bytes": 64
+          },
+          {
+            "height": 24,
+            "name": "V",
+            "row_bytes": 64
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "ftype": 2,
+        "pmax": 500.0,
+        "pmin": 0.1,
+        "sbsize": 8,
+        "sigma": 5.0,
+        "sosize": 4,
+        "tbsize": 1,
+        "threads": 1
+      },
+      "sha256": "34d8dd6ac2acf4087139edef6d489448c53c14c883e79b49f302e8a635fe421f",
+      "source": "blank_yuv420p10_64x48_9f",
+      "tier": "compat"
+    },
+    {
+      "case": "compat_yuv420p10_ftype2",
+      "frame": 8,
+      "host": "vs",
+      "metadata": {
+        "format": {
+          "bits_per_sample": 10,
+          "bytes_per_sample": 2,
+          "color_family": 3,
+          "id": 805961985,
+          "name": "YUV420P10",
+          "num_planes": 3,
+          "sample_type": 0,
+          "subsampling_h": 1,
+          "subsampling_w": 1
+        },
+        "frames": 9,
+        "height": 48,
+        "planes": [
+          {
+            "height": 48,
+            "name": "Y",
+            "row_bytes": 128
+          },
+          {
+            "height": 24,
+            "name": "U",
+            "row_bytes": 64
+          },
+          {
+            "height": 24,
+            "name": "V",
+            "row_bytes": 64
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "ftype": 2,
+        "pmax": 500.0,
+        "pmin": 0.1,
+        "sbsize": 8,
+        "sigma": 5.0,
+        "sosize": 4,
+        "tbsize": 1,
+        "threads": 1
+      },
+      "sha256": "34d8dd6ac2acf4087139edef6d489448c53c14c883e79b49f302e8a635fe421f",
+      "source": "blank_yuv420p10_64x48_9f",
+      "tier": "compat"
+    },
+    {
+      "case": "compat_yuv420p10_ftype2",
+      "frame": 0,
+      "host": "avs",
+      "metadata": {
+        "bits_per_sample": 10,
+        "bytes_per_sample": 2,
+        "frames": 9,
+        "height": 48,
+        "pixel_type": -1610285048,
+        "planes": [
+          {
+            "height": 48,
+            "name": "Y",
+            "row_bytes": 128
+          },
+          {
+            "height": 24,
+            "name": "U",
+            "row_bytes": 64
+          },
+          {
+            "height": 24,
+            "name": "V",
+            "row_bytes": 64
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "ftype": 2,
+        "pmax": 500.0,
+        "pmin": 0.1,
+        "sbsize": 8,
+        "sigma": 5.0,
+        "sosize": 4,
+        "tbsize": 1,
+        "threads": 1
+      },
+      "sha256": "34d8dd6ac2acf4087139edef6d489448c53c14c883e79b49f302e8a635fe421f",
+      "source": "blank_yuv420p10_64x48_9f",
+      "tier": "compat"
+    },
+    {
+      "case": "compat_yuv420p10_ftype2",
+      "frame": 4,
+      "host": "avs",
+      "metadata": {
+        "bits_per_sample": 10,
+        "bytes_per_sample": 2,
+        "frames": 9,
+        "height": 48,
+        "pixel_type": -1610285048,
+        "planes": [
+          {
+            "height": 48,
+            "name": "Y",
+            "row_bytes": 128
+          },
+          {
+            "height": 24,
+            "name": "U",
+            "row_bytes": 64
+          },
+          {
+            "height": 24,
+            "name": "V",
+            "row_bytes": 64
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "ftype": 2,
+        "pmax": 500.0,
+        "pmin": 0.1,
+        "sbsize": 8,
+        "sigma": 5.0,
+        "sosize": 4,
+        "tbsize": 1,
+        "threads": 1
+      },
+      "sha256": "34d8dd6ac2acf4087139edef6d489448c53c14c883e79b49f302e8a635fe421f",
+      "source": "blank_yuv420p10_64x48_9f",
+      "tier": "compat"
+    },
+    {
+      "case": "compat_yuv420p10_ftype2",
+      "frame": 8,
+      "host": "avs",
+      "metadata": {
+        "bits_per_sample": 10,
+        "bytes_per_sample": 2,
+        "frames": 9,
+        "height": 48,
+        "pixel_type": -1610285048,
+        "planes": [
+          {
+            "height": 48,
+            "name": "Y",
+            "row_bytes": 128
+          },
+          {
+            "height": 24,
+            "name": "U",
+            "row_bytes": 64
+          },
+          {
+            "height": 24,
+            "name": "V",
+            "row_bytes": 64
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "ftype": 2,
+        "pmax": 500.0,
+        "pmin": 0.1,
+        "sbsize": 8,
+        "sigma": 5.0,
+        "sosize": 4,
+        "tbsize": 1,
+        "threads": 1
+      },
+      "sha256": "34d8dd6ac2acf4087139edef6d489448c53c14c883e79b49f302e8a635fe421f",
+      "source": "blank_yuv420p10_64x48_9f",
+      "tier": "compat"
+    },
+    {
+      "case": "compat_yuv444p16_smode0_ftype1",
+      "frame": 0,
+      "host": "vs",
+      "metadata": {
+        "format": {
+          "bits_per_sample": 16,
+          "bytes_per_sample": 2,
+          "color_family": 3,
+          "id": 806354944,
+          "name": "YUV444P16",
+          "num_planes": 3,
+          "sample_type": 0,
+          "subsampling_h": 0,
+          "subsampling_w": 0
+        },
+        "frames": 9,
+        "height": 48,
+        "planes": [
+          {
+            "height": 48,
+            "name": "Y",
+            "row_bytes": 128
+          },
+          {
+            "height": 48,
+            "name": "U",
+            "row_bytes": 128
+          },
+          {
+            "height": 48,
+            "name": "V",
+            "row_bytes": 128
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "ftype": 1,
+        "sbsize": 9,
+        "sigma": 7.0,
+        "smode": 0,
+        "tbsize": 1,
+        "threads": 1
+      },
+      "sha256": "5f49401631082d3f089db51d71c3a0e7ff74dafe6434cf4f6f26e0a090ca51d6",
+      "source": "blank_yuv444p16_64x48_9f",
+      "tier": "compat"
+    },
+    {
+      "case": "compat_yuv444p16_smode0_ftype1",
+      "frame": 4,
+      "host": "vs",
+      "metadata": {
+        "format": {
+          "bits_per_sample": 16,
+          "bytes_per_sample": 2,
+          "color_family": 3,
+          "id": 806354944,
+          "name": "YUV444P16",
+          "num_planes": 3,
+          "sample_type": 0,
+          "subsampling_h": 0,
+          "subsampling_w": 0
+        },
+        "frames": 9,
+        "height": 48,
+        "planes": [
+          {
+            "height": 48,
+            "name": "Y",
+            "row_bytes": 128
+          },
+          {
+            "height": 48,
+            "name": "U",
+            "row_bytes": 128
+          },
+          {
+            "height": 48,
+            "name": "V",
+            "row_bytes": 128
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "ftype": 1,
+        "sbsize": 9,
+        "sigma": 7.0,
+        "smode": 0,
+        "tbsize": 1,
+        "threads": 1
+      },
+      "sha256": "5f49401631082d3f089db51d71c3a0e7ff74dafe6434cf4f6f26e0a090ca51d6",
+      "source": "blank_yuv444p16_64x48_9f",
+      "tier": "compat"
+    },
+    {
+      "case": "compat_yuv444p16_smode0_ftype1",
+      "frame": 8,
+      "host": "vs",
+      "metadata": {
+        "format": {
+          "bits_per_sample": 16,
+          "bytes_per_sample": 2,
+          "color_family": 3,
+          "id": 806354944,
+          "name": "YUV444P16",
+          "num_planes": 3,
+          "sample_type": 0,
+          "subsampling_h": 0,
+          "subsampling_w": 0
+        },
+        "frames": 9,
+        "height": 48,
+        "planes": [
+          {
+            "height": 48,
+            "name": "Y",
+            "row_bytes": 128
+          },
+          {
+            "height": 48,
+            "name": "U",
+            "row_bytes": 128
+          },
+          {
+            "height": 48,
+            "name": "V",
+            "row_bytes": 128
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "ftype": 1,
+        "sbsize": 9,
+        "sigma": 7.0,
+        "smode": 0,
+        "tbsize": 1,
+        "threads": 1
+      },
+      "sha256": "5f49401631082d3f089db51d71c3a0e7ff74dafe6434cf4f6f26e0a090ca51d6",
+      "source": "blank_yuv444p16_64x48_9f",
+      "tier": "compat"
+    },
+    {
+      "case": "compat_yuv444p16_smode0_ftype1",
+      "frame": 0,
+      "host": "avs",
+      "metadata": {
+        "bits_per_sample": 16,
+        "bytes_per_sample": 2,
+        "frames": 9,
+        "height": 48,
+        "pixel_type": -1610546421,
+        "planes": [
+          {
+            "height": 48,
+            "name": "Y",
+            "row_bytes": 128
+          },
+          {
+            "height": 48,
+            "name": "U",
+            "row_bytes": 128
+          },
+          {
+            "height": 48,
+            "name": "V",
+            "row_bytes": 128
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "ftype": 1,
+        "sbsize": 9,
+        "sigma": 7.0,
+        "smode": 0,
+        "tbsize": 1,
+        "threads": 1
+      },
+      "sha256": "5f49401631082d3f089db51d71c3a0e7ff74dafe6434cf4f6f26e0a090ca51d6",
+      "source": "blank_yuv444p16_64x48_9f",
+      "tier": "compat"
+    },
+    {
+      "case": "compat_yuv444p16_smode0_ftype1",
+      "frame": 4,
+      "host": "avs",
+      "metadata": {
+        "bits_per_sample": 16,
+        "bytes_per_sample": 2,
+        "frames": 9,
+        "height": 48,
+        "pixel_type": -1610546421,
+        "planes": [
+          {
+            "height": 48,
+            "name": "Y",
+            "row_bytes": 128
+          },
+          {
+            "height": 48,
+            "name": "U",
+            "row_bytes": 128
+          },
+          {
+            "height": 48,
+            "name": "V",
+            "row_bytes": 128
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "ftype": 1,
+        "sbsize": 9,
+        "sigma": 7.0,
+        "smode": 0,
+        "tbsize": 1,
+        "threads": 1
+      },
+      "sha256": "5f49401631082d3f089db51d71c3a0e7ff74dafe6434cf4f6f26e0a090ca51d6",
+      "source": "blank_yuv444p16_64x48_9f",
+      "tier": "compat"
+    },
+    {
+      "case": "compat_yuv444p16_smode0_ftype1",
+      "frame": 8,
+      "host": "avs",
+      "metadata": {
+        "bits_per_sample": 16,
+        "bytes_per_sample": 2,
+        "frames": 9,
+        "height": 48,
+        "pixel_type": -1610546421,
+        "planes": [
+          {
+            "height": 48,
+            "name": "Y",
+            "row_bytes": 128
+          },
+          {
+            "height": 48,
+            "name": "U",
+            "row_bytes": 128
+          },
+          {
+            "height": 48,
+            "name": "V",
+            "row_bytes": 128
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "ftype": 1,
+        "sbsize": 9,
+        "sigma": 7.0,
+        "smode": 0,
+        "tbsize": 1,
+        "threads": 1
+      },
+      "sha256": "5f49401631082d3f089db51d71c3a0e7ff74dafe6434cf4f6f26e0a090ca51d6",
+      "source": "blank_yuv444p16_64x48_9f",
+      "tier": "compat"
+    },
+    {
+      "case": "compat_rgb48_ftype2",
+      "frame": 0,
+      "host": "vs",
+      "metadata": {
+        "format": {
+          "bits_per_sample": 16,
+          "bytes_per_sample": 2,
+          "color_family": 2,
+          "id": 537919488,
+          "name": "RGB48",
+          "num_planes": 3,
+          "sample_type": 0,
+          "subsampling_h": 0,
+          "subsampling_w": 0
+        },
+        "frames": 9,
+        "height": 48,
+        "planes": [
+          {
+            "height": 48,
+            "name": "R",
+            "row_bytes": 128
+          },
+          {
+            "height": 48,
+            "name": "G",
+            "row_bytes": 128
+          },
+          {
+            "height": 48,
+            "name": "B",
+            "row_bytes": 128
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "ftype": 2,
+        "sbsize": 8,
+        "sigma": 6.0,
+        "sosize": 4,
+        "tbsize": 1,
+        "threads": 1
+      },
+      "sha256": "1dd89f7c4b3365206f82c29b32fee683b9e27417dec4df4938f38b5e0264cba1",
+      "source": "blank_rgb48_64x48_9f",
+      "tier": "compat"
+    },
+    {
+      "case": "compat_rgb48_ftype2",
+      "frame": 4,
+      "host": "vs",
+      "metadata": {
+        "format": {
+          "bits_per_sample": 16,
+          "bytes_per_sample": 2,
+          "color_family": 2,
+          "id": 537919488,
+          "name": "RGB48",
+          "num_planes": 3,
+          "sample_type": 0,
+          "subsampling_h": 0,
+          "subsampling_w": 0
+        },
+        "frames": 9,
+        "height": 48,
+        "planes": [
+          {
+            "height": 48,
+            "name": "R",
+            "row_bytes": 128
+          },
+          {
+            "height": 48,
+            "name": "G",
+            "row_bytes": 128
+          },
+          {
+            "height": 48,
+            "name": "B",
+            "row_bytes": 128
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "ftype": 2,
+        "sbsize": 8,
+        "sigma": 6.0,
+        "sosize": 4,
+        "tbsize": 1,
+        "threads": 1
+      },
+      "sha256": "1dd89f7c4b3365206f82c29b32fee683b9e27417dec4df4938f38b5e0264cba1",
+      "source": "blank_rgb48_64x48_9f",
+      "tier": "compat"
+    },
+    {
+      "case": "compat_rgb48_ftype2",
+      "frame": 8,
+      "host": "vs",
+      "metadata": {
+        "format": {
+          "bits_per_sample": 16,
+          "bytes_per_sample": 2,
+          "color_family": 2,
+          "id": 537919488,
+          "name": "RGB48",
+          "num_planes": 3,
+          "sample_type": 0,
+          "subsampling_h": 0,
+          "subsampling_w": 0
+        },
+        "frames": 9,
+        "height": 48,
+        "planes": [
+          {
+            "height": 48,
+            "name": "R",
+            "row_bytes": 128
+          },
+          {
+            "height": 48,
+            "name": "G",
+            "row_bytes": 128
+          },
+          {
+            "height": 48,
+            "name": "B",
+            "row_bytes": 128
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "ftype": 2,
+        "sbsize": 8,
+        "sigma": 6.0,
+        "sosize": 4,
+        "tbsize": 1,
+        "threads": 1
+      },
+      "sha256": "1dd89f7c4b3365206f82c29b32fee683b9e27417dec4df4938f38b5e0264cba1",
+      "source": "blank_rgb48_64x48_9f",
+      "tier": "compat"
+    },
+    {
+      "case": "compat_rgb48_ftype2",
+      "frame": 0,
+      "host": "avs",
+      "metadata": {
+        "bits_per_sample": 16,
+        "bytes_per_sample": 2,
+        "frames": 9,
+        "height": 48,
+        "pixel_type": -1878982655,
+        "planes": [
+          {
+            "height": 48,
+            "name": "R",
+            "row_bytes": 128
+          },
+          {
+            "height": 48,
+            "name": "G",
+            "row_bytes": 128
+          },
+          {
+            "height": 48,
+            "name": "B",
+            "row_bytes": 128
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "ftype": 2,
+        "sbsize": 8,
+        "sigma": 6.0,
+        "sosize": 4,
+        "tbsize": 1,
+        "threads": 1
+      },
+      "sha256": "1dd89f7c4b3365206f82c29b32fee683b9e27417dec4df4938f38b5e0264cba1",
+      "source": "blank_rgb48_64x48_9f",
+      "tier": "compat"
+    },
+    {
+      "case": "compat_rgb48_ftype2",
+      "frame": 4,
+      "host": "avs",
+      "metadata": {
+        "bits_per_sample": 16,
+        "bytes_per_sample": 2,
+        "frames": 9,
+        "height": 48,
+        "pixel_type": -1878982655,
+        "planes": [
+          {
+            "height": 48,
+            "name": "R",
+            "row_bytes": 128
+          },
+          {
+            "height": 48,
+            "name": "G",
+            "row_bytes": 128
+          },
+          {
+            "height": 48,
+            "name": "B",
+            "row_bytes": 128
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "ftype": 2,
+        "sbsize": 8,
+        "sigma": 6.0,
+        "sosize": 4,
+        "tbsize": 1,
+        "threads": 1
+      },
+      "sha256": "1dd89f7c4b3365206f82c29b32fee683b9e27417dec4df4938f38b5e0264cba1",
+      "source": "blank_rgb48_64x48_9f",
+      "tier": "compat"
+    },
+    {
+      "case": "compat_rgb48_ftype2",
+      "frame": 8,
+      "host": "avs",
+      "metadata": {
+        "bits_per_sample": 16,
+        "bytes_per_sample": 2,
+        "frames": 9,
+        "height": 48,
+        "pixel_type": -1878982655,
+        "planes": [
+          {
+            "height": 48,
+            "name": "R",
+            "row_bytes": 128
+          },
+          {
+            "height": 48,
+            "name": "G",
+            "row_bytes": 128
+          },
+          {
+            "height": 48,
+            "name": "B",
+            "row_bytes": 128
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "ftype": 2,
+        "sbsize": 8,
+        "sigma": 6.0,
+        "sosize": 4,
+        "tbsize": 1,
+        "threads": 1
+      },
+      "sha256": "1dd89f7c4b3365206f82c29b32fee683b9e27417dec4df4938f38b5e0264cba1",
+      "source": "blank_rgb48_64x48_9f",
+      "tier": "compat"
     }
   ],
   "schema": 2

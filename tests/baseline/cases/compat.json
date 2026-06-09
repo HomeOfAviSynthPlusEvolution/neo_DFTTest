@@ -280,6 +280,154 @@
         "threads": 1,
         "fft_threads": 1
       }
+    },
+    {
+      "id": "compat_yuv422p8_planes_uv_ftype2",
+      "tier": "compat",
+      "source": {
+        "id": "blank_yuv422p8_64x48_9f",
+        "type": "blank",
+        "width": 64,
+        "height": 48,
+        "length": 9,
+        "format": "YUV422P8",
+        "avs_format": "YV16",
+        "color": [
+          64,
+          96,
+          160
+        ],
+        "avs_color": 0,
+        "avs_color_yuv": "$4060A0"
+      },
+      "frames": [
+        0,
+        4,
+        8
+      ],
+      "params": {
+        "tbsize": 1,
+        "sbsize": 8,
+        "sosize": 4,
+        "ftype": 2,
+        "sigma": 5.0,
+        "threads": 1,
+        "fft_threads": 1
+      },
+      "vs_params": {
+        "planes": [
+          1,
+          2
+        ]
+      },
+      "avs_params": {
+        "y": 2,
+        "u": 3,
+        "v": 3
+      }
+    },
+    {
+      "id": "compat_yuv420p10_ftype2",
+      "tier": "compat",
+      "source": {
+        "id": "blank_yuv420p10_64x48_9f",
+        "type": "blank",
+        "width": 64,
+        "height": 48,
+        "length": 9,
+        "format": "YUV420P10",
+        "avs_format": "YUV420P10",
+        "color": [
+          256,
+          384,
+          640
+        ],
+        "avs_color": 0,
+        "avs_color_yuv": "$4060A0"
+      },
+      "frames": [
+        0,
+        4,
+        8
+      ],
+      "params": {
+        "tbsize": 1,
+        "sbsize": 8,
+        "sosize": 4,
+        "ftype": 2,
+        "sigma": 5.0,
+        "pmin": 0.1,
+        "pmax": 500.0,
+        "threads": 1,
+        "fft_threads": 1
+      }
+    },
+    {
+      "id": "compat_yuv444p16_smode0_ftype1",
+      "tier": "compat",
+      "source": {
+        "id": "blank_yuv444p16_64x48_9f",
+        "type": "blank",
+        "width": 64,
+        "height": 48,
+        "length": 9,
+        "format": "YUV444P16",
+        "avs_format": "YUV444P16",
+        "color": [
+          16384,
+          24576,
+          40960
+        ],
+        "avs_color": 0,
+        "avs_color_yuv": "$4060A0"
+      },
+      "frames": [
+        0,
+        4,
+        8
+      ],
+      "params": {
+        "tbsize": 1,
+        "sbsize": 9,
+        "smode": 0,
+        "ftype": 1,
+        "sigma": 7.0,
+        "threads": 1,
+        "fft_threads": 1
+      }
+    },
+    {
+      "id": "compat_rgb48_ftype2",
+      "tier": "compat",
+      "source": {
+        "id": "blank_rgb48_64x48_9f",
+        "type": "blank",
+        "width": 64,
+        "height": 48,
+        "length": 9,
+        "format": "RGB48",
+        "avs_format": "RGBP16",
+        "color": [
+          10280,
+          16448,
+          30840
+        ],
+        "avs_color": 2637944
+      },
+      "frames": [
+        0,
+        4,
+        8
+      ],
+      "params": {
+        "tbsize": 1,
+        "sbsize": 8,
+        "sosize": 4,
+        "ftype": 2,
+        "sigma": 6.0,
+        "threads": 1,
+        "fft_threads": 1
+      }
     }
   ]
 }
