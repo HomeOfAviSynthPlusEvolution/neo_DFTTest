@@ -617,6 +617,798 @@
       "sha256": "f6770e67ca0d47827f3e64fcd18485fe4468d3c3ebc220597035fc1382c4c61f",
       "source": "blank_y8_64x48_9f",
       "tier": "smoke"
+    },
+    {
+      "case": "smoke_yuv420p8_default",
+      "frame": 0,
+      "host": "vs",
+      "metadata": {
+        "format": {
+          "bits_per_sample": 8,
+          "bytes_per_sample": 1,
+          "color_family": 3,
+          "id": 805830913,
+          "name": "YUV420P8",
+          "num_planes": 3,
+          "sample_type": 0,
+          "subsampling_h": 1,
+          "subsampling_w": 1
+        },
+        "frames": 9,
+        "height": 48,
+        "planes": [
+          {
+            "height": 48,
+            "name": "Y",
+            "row_bytes": 64,
+            "stride": 64
+          },
+          {
+            "height": 24,
+            "name": "U",
+            "row_bytes": 32,
+            "stride": 32
+          },
+          {
+            "height": 24,
+            "name": "V",
+            "row_bytes": 32,
+            "stride": 32
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "threads": 1
+      },
+      "sha256": "d3b6f2c9b75cf13e0e25b9bf44521f6bde948ee0ddfdb0c3e8fe902923c208a3",
+      "source": "blank_yuv420p8_64x48_9f",
+      "tier": "smoke"
+    },
+    {
+      "case": "smoke_yuv420p8_default",
+      "frame": 4,
+      "host": "vs",
+      "metadata": {
+        "format": {
+          "bits_per_sample": 8,
+          "bytes_per_sample": 1,
+          "color_family": 3,
+          "id": 805830913,
+          "name": "YUV420P8",
+          "num_planes": 3,
+          "sample_type": 0,
+          "subsampling_h": 1,
+          "subsampling_w": 1
+        },
+        "frames": 9,
+        "height": 48,
+        "planes": [
+          {
+            "height": 48,
+            "name": "Y",
+            "row_bytes": 64,
+            "stride": 64
+          },
+          {
+            "height": 24,
+            "name": "U",
+            "row_bytes": 32,
+            "stride": 32
+          },
+          {
+            "height": 24,
+            "name": "V",
+            "row_bytes": 32,
+            "stride": 32
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "threads": 1
+      },
+      "sha256": "d3b6f2c9b75cf13e0e25b9bf44521f6bde948ee0ddfdb0c3e8fe902923c208a3",
+      "source": "blank_yuv420p8_64x48_9f",
+      "tier": "smoke"
+    },
+    {
+      "case": "smoke_yuv420p8_default",
+      "frame": 8,
+      "host": "vs",
+      "metadata": {
+        "format": {
+          "bits_per_sample": 8,
+          "bytes_per_sample": 1,
+          "color_family": 3,
+          "id": 805830913,
+          "name": "YUV420P8",
+          "num_planes": 3,
+          "sample_type": 0,
+          "subsampling_h": 1,
+          "subsampling_w": 1
+        },
+        "frames": 9,
+        "height": 48,
+        "planes": [
+          {
+            "height": 48,
+            "name": "Y",
+            "row_bytes": 64,
+            "stride": 64
+          },
+          {
+            "height": 24,
+            "name": "U",
+            "row_bytes": 32,
+            "stride": 32
+          },
+          {
+            "height": 24,
+            "name": "V",
+            "row_bytes": 32,
+            "stride": 32
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "threads": 1
+      },
+      "sha256": "d3b6f2c9b75cf13e0e25b9bf44521f6bde948ee0ddfdb0c3e8fe902923c208a3",
+      "source": "blank_yuv420p8_64x48_9f",
+      "tier": "smoke"
+    },
+    {
+      "case": "smoke_yuv420p8_default",
+      "frame": 0,
+      "host": "avs",
+      "metadata": {
+        "bits_per_sample": 8,
+        "bytes_per_sample": 1,
+        "frames": 9,
+        "height": 48,
+        "pixel_type": -1610612728,
+        "planes": [
+          {
+            "height": 48,
+            "name": "Y",
+            "row_bytes": 64,
+            "stride": 64
+          },
+          {
+            "height": 24,
+            "name": "U",
+            "row_bytes": 32,
+            "stride": 64
+          },
+          {
+            "height": 24,
+            "name": "V",
+            "row_bytes": 32,
+            "stride": 64
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "threads": 1
+      },
+      "sha256": "d3b6f2c9b75cf13e0e25b9bf44521f6bde948ee0ddfdb0c3e8fe902923c208a3",
+      "source": "blank_yuv420p8_64x48_9f",
+      "tier": "smoke"
+    },
+    {
+      "case": "smoke_yuv420p8_default",
+      "frame": 4,
+      "host": "avs",
+      "metadata": {
+        "bits_per_sample": 8,
+        "bytes_per_sample": 1,
+        "frames": 9,
+        "height": 48,
+        "pixel_type": -1610612728,
+        "planes": [
+          {
+            "height": 48,
+            "name": "Y",
+            "row_bytes": 64,
+            "stride": 64
+          },
+          {
+            "height": 24,
+            "name": "U",
+            "row_bytes": 32,
+            "stride": 64
+          },
+          {
+            "height": 24,
+            "name": "V",
+            "row_bytes": 32,
+            "stride": 64
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "threads": 1
+      },
+      "sha256": "d3b6f2c9b75cf13e0e25b9bf44521f6bde948ee0ddfdb0c3e8fe902923c208a3",
+      "source": "blank_yuv420p8_64x48_9f",
+      "tier": "smoke"
+    },
+    {
+      "case": "smoke_yuv420p8_default",
+      "frame": 8,
+      "host": "avs",
+      "metadata": {
+        "bits_per_sample": 8,
+        "bytes_per_sample": 1,
+        "frames": 9,
+        "height": 48,
+        "pixel_type": -1610612728,
+        "planes": [
+          {
+            "height": 48,
+            "name": "Y",
+            "row_bytes": 64,
+            "stride": 64
+          },
+          {
+            "height": 24,
+            "name": "U",
+            "row_bytes": 32,
+            "stride": 64
+          },
+          {
+            "height": 24,
+            "name": "V",
+            "row_bytes": 32,
+            "stride": 64
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "threads": 1
+      },
+      "sha256": "d3b6f2c9b75cf13e0e25b9bf44521f6bde948ee0ddfdb0c3e8fe902923c208a3",
+      "source": "blank_yuv420p8_64x48_9f",
+      "tier": "smoke"
+    },
+    {
+      "case": "smoke_yuv444p8_default",
+      "frame": 0,
+      "host": "vs",
+      "metadata": {
+        "format": {
+          "bits_per_sample": 8,
+          "bytes_per_sample": 1,
+          "color_family": 3,
+          "id": 805830656,
+          "name": "YUV444P8",
+          "num_planes": 3,
+          "sample_type": 0,
+          "subsampling_h": 0,
+          "subsampling_w": 0
+        },
+        "frames": 9,
+        "height": 48,
+        "planes": [
+          {
+            "height": 48,
+            "name": "Y",
+            "row_bytes": 64,
+            "stride": 64
+          },
+          {
+            "height": 48,
+            "name": "U",
+            "row_bytes": 64,
+            "stride": 64
+          },
+          {
+            "height": 48,
+            "name": "V",
+            "row_bytes": 64,
+            "stride": 64
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "threads": 1
+      },
+      "sha256": "731d2788133065c6fa2fd10200d8e6b2f1f503d5afbe54957a3e8d09da5a87df",
+      "source": "blank_yuv444p8_64x48_9f",
+      "tier": "smoke"
+    },
+    {
+      "case": "smoke_yuv444p8_default",
+      "frame": 4,
+      "host": "vs",
+      "metadata": {
+        "format": {
+          "bits_per_sample": 8,
+          "bytes_per_sample": 1,
+          "color_family": 3,
+          "id": 805830656,
+          "name": "YUV444P8",
+          "num_planes": 3,
+          "sample_type": 0,
+          "subsampling_h": 0,
+          "subsampling_w": 0
+        },
+        "frames": 9,
+        "height": 48,
+        "planes": [
+          {
+            "height": 48,
+            "name": "Y",
+            "row_bytes": 64,
+            "stride": 64
+          },
+          {
+            "height": 48,
+            "name": "U",
+            "row_bytes": 64,
+            "stride": 64
+          },
+          {
+            "height": 48,
+            "name": "V",
+            "row_bytes": 64,
+            "stride": 64
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "threads": 1
+      },
+      "sha256": "731d2788133065c6fa2fd10200d8e6b2f1f503d5afbe54957a3e8d09da5a87df",
+      "source": "blank_yuv444p8_64x48_9f",
+      "tier": "smoke"
+    },
+    {
+      "case": "smoke_yuv444p8_default",
+      "frame": 8,
+      "host": "vs",
+      "metadata": {
+        "format": {
+          "bits_per_sample": 8,
+          "bytes_per_sample": 1,
+          "color_family": 3,
+          "id": 805830656,
+          "name": "YUV444P8",
+          "num_planes": 3,
+          "sample_type": 0,
+          "subsampling_h": 0,
+          "subsampling_w": 0
+        },
+        "frames": 9,
+        "height": 48,
+        "planes": [
+          {
+            "height": 48,
+            "name": "Y",
+            "row_bytes": 64,
+            "stride": 64
+          },
+          {
+            "height": 48,
+            "name": "U",
+            "row_bytes": 64,
+            "stride": 64
+          },
+          {
+            "height": 48,
+            "name": "V",
+            "row_bytes": 64,
+            "stride": 64
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "threads": 1
+      },
+      "sha256": "731d2788133065c6fa2fd10200d8e6b2f1f503d5afbe54957a3e8d09da5a87df",
+      "source": "blank_yuv444p8_64x48_9f",
+      "tier": "smoke"
+    },
+    {
+      "case": "smoke_yuv444p8_default",
+      "frame": 0,
+      "host": "avs",
+      "metadata": {
+        "bits_per_sample": 8,
+        "bytes_per_sample": 1,
+        "frames": 9,
+        "height": 48,
+        "pixel_type": -1610611957,
+        "planes": [
+          {
+            "height": 48,
+            "name": "Y",
+            "row_bytes": 64,
+            "stride": 64
+          },
+          {
+            "height": 48,
+            "name": "U",
+            "row_bytes": 64,
+            "stride": 64
+          },
+          {
+            "height": 48,
+            "name": "V",
+            "row_bytes": 64,
+            "stride": 64
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "threads": 1
+      },
+      "sha256": "731d2788133065c6fa2fd10200d8e6b2f1f503d5afbe54957a3e8d09da5a87df",
+      "source": "blank_yuv444p8_64x48_9f",
+      "tier": "smoke"
+    },
+    {
+      "case": "smoke_yuv444p8_default",
+      "frame": 4,
+      "host": "avs",
+      "metadata": {
+        "bits_per_sample": 8,
+        "bytes_per_sample": 1,
+        "frames": 9,
+        "height": 48,
+        "pixel_type": -1610611957,
+        "planes": [
+          {
+            "height": 48,
+            "name": "Y",
+            "row_bytes": 64,
+            "stride": 64
+          },
+          {
+            "height": 48,
+            "name": "U",
+            "row_bytes": 64,
+            "stride": 64
+          },
+          {
+            "height": 48,
+            "name": "V",
+            "row_bytes": 64,
+            "stride": 64
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "threads": 1
+      },
+      "sha256": "731d2788133065c6fa2fd10200d8e6b2f1f503d5afbe54957a3e8d09da5a87df",
+      "source": "blank_yuv444p8_64x48_9f",
+      "tier": "smoke"
+    },
+    {
+      "case": "smoke_yuv444p8_default",
+      "frame": 8,
+      "host": "avs",
+      "metadata": {
+        "bits_per_sample": 8,
+        "bytes_per_sample": 1,
+        "frames": 9,
+        "height": 48,
+        "pixel_type": -1610611957,
+        "planes": [
+          {
+            "height": 48,
+            "name": "Y",
+            "row_bytes": 64,
+            "stride": 64
+          },
+          {
+            "height": 48,
+            "name": "U",
+            "row_bytes": 64,
+            "stride": 64
+          },
+          {
+            "height": 48,
+            "name": "V",
+            "row_bytes": 64,
+            "stride": 64
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "threads": 1
+      },
+      "sha256": "731d2788133065c6fa2fd10200d8e6b2f1f503d5afbe54957a3e8d09da5a87df",
+      "source": "blank_yuv444p8_64x48_9f",
+      "tier": "smoke"
+    },
+    {
+      "case": "smoke_rgb24_default",
+      "frame": 0,
+      "host": "vs",
+      "metadata": {
+        "format": {
+          "bits_per_sample": 8,
+          "bytes_per_sample": 1,
+          "color_family": 2,
+          "id": 537395200,
+          "name": "RGB24",
+          "num_planes": 3,
+          "sample_type": 0,
+          "subsampling_h": 0,
+          "subsampling_w": 0
+        },
+        "frames": 9,
+        "height": 48,
+        "planes": [
+          {
+            "height": 48,
+            "name": "R",
+            "row_bytes": 64,
+            "stride": 64
+          },
+          {
+            "height": 48,
+            "name": "G",
+            "row_bytes": 64,
+            "stride": 64
+          },
+          {
+            "height": 48,
+            "name": "B",
+            "row_bytes": 64,
+            "stride": 64
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "threads": 1
+      },
+      "sha256": "835fdaae0c03f557cc1bf7c127862d0cebccee3322575c47c6c1ecfea1d78986",
+      "source": "blank_rgb24_64x48_9f",
+      "tier": "smoke"
+    },
+    {
+      "case": "smoke_rgb24_default",
+      "frame": 4,
+      "host": "vs",
+      "metadata": {
+        "format": {
+          "bits_per_sample": 8,
+          "bytes_per_sample": 1,
+          "color_family": 2,
+          "id": 537395200,
+          "name": "RGB24",
+          "num_planes": 3,
+          "sample_type": 0,
+          "subsampling_h": 0,
+          "subsampling_w": 0
+        },
+        "frames": 9,
+        "height": 48,
+        "planes": [
+          {
+            "height": 48,
+            "name": "R",
+            "row_bytes": 64,
+            "stride": 64
+          },
+          {
+            "height": 48,
+            "name": "G",
+            "row_bytes": 64,
+            "stride": 64
+          },
+          {
+            "height": 48,
+            "name": "B",
+            "row_bytes": 64,
+            "stride": 64
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "threads": 1
+      },
+      "sha256": "835fdaae0c03f557cc1bf7c127862d0cebccee3322575c47c6c1ecfea1d78986",
+      "source": "blank_rgb24_64x48_9f",
+      "tier": "smoke"
+    },
+    {
+      "case": "smoke_rgb24_default",
+      "frame": 8,
+      "host": "vs",
+      "metadata": {
+        "format": {
+          "bits_per_sample": 8,
+          "bytes_per_sample": 1,
+          "color_family": 2,
+          "id": 537395200,
+          "name": "RGB24",
+          "num_planes": 3,
+          "sample_type": 0,
+          "subsampling_h": 0,
+          "subsampling_w": 0
+        },
+        "frames": 9,
+        "height": 48,
+        "planes": [
+          {
+            "height": 48,
+            "name": "R",
+            "row_bytes": 64,
+            "stride": 64
+          },
+          {
+            "height": 48,
+            "name": "G",
+            "row_bytes": 64,
+            "stride": 64
+          },
+          {
+            "height": 48,
+            "name": "B",
+            "row_bytes": 64,
+            "stride": 64
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "threads": 1
+      },
+      "sha256": "835fdaae0c03f557cc1bf7c127862d0cebccee3322575c47c6c1ecfea1d78986",
+      "source": "blank_rgb24_64x48_9f",
+      "tier": "smoke"
+    },
+    {
+      "case": "smoke_rgb24_default",
+      "frame": 0,
+      "host": "avs",
+      "metadata": {
+        "bits_per_sample": 8,
+        "bytes_per_sample": 1,
+        "frames": 9,
+        "height": 48,
+        "pixel_type": -1879048191,
+        "planes": [
+          {
+            "height": 48,
+            "name": "R",
+            "row_bytes": 64,
+            "stride": 64
+          },
+          {
+            "height": 48,
+            "name": "G",
+            "row_bytes": 64,
+            "stride": 64
+          },
+          {
+            "height": 48,
+            "name": "B",
+            "row_bytes": 64,
+            "stride": 64
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "threads": 1
+      },
+      "sha256": "835fdaae0c03f557cc1bf7c127862d0cebccee3322575c47c6c1ecfea1d78986",
+      "source": "blank_rgb24_64x48_9f",
+      "tier": "smoke"
+    },
+    {
+      "case": "smoke_rgb24_default",
+      "frame": 4,
+      "host": "avs",
+      "metadata": {
+        "bits_per_sample": 8,
+        "bytes_per_sample": 1,
+        "frames": 9,
+        "height": 48,
+        "pixel_type": -1879048191,
+        "planes": [
+          {
+            "height": 48,
+            "name": "R",
+            "row_bytes": 64,
+            "stride": 64
+          },
+          {
+            "height": 48,
+            "name": "G",
+            "row_bytes": 64,
+            "stride": 64
+          },
+          {
+            "height": 48,
+            "name": "B",
+            "row_bytes": 64,
+            "stride": 64
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "threads": 1
+      },
+      "sha256": "835fdaae0c03f557cc1bf7c127862d0cebccee3322575c47c6c1ecfea1d78986",
+      "source": "blank_rgb24_64x48_9f",
+      "tier": "smoke"
+    },
+    {
+      "case": "smoke_rgb24_default",
+      "frame": 8,
+      "host": "avs",
+      "metadata": {
+        "bits_per_sample": 8,
+        "bytes_per_sample": 1,
+        "frames": 9,
+        "height": 48,
+        "pixel_type": -1879048191,
+        "planes": [
+          {
+            "height": 48,
+            "name": "R",
+            "row_bytes": 64,
+            "stride": 64
+          },
+          {
+            "height": 48,
+            "name": "G",
+            "row_bytes": 64,
+            "stride": 64
+          },
+          {
+            "height": 48,
+            "name": "B",
+            "row_bytes": 64,
+            "stride": 64
+          }
+        ],
+        "width": 64
+      },
+      "params": {
+        "fft_threads": 1,
+        "threads": 1
+      },
+      "sha256": "835fdaae0c03f557cc1bf7c127862d0cebccee3322575c47c6c1ecfea1d78986",
+      "source": "blank_rgb24_64x48_9f",
+      "tier": "smoke"
     }
   ],
   "schema": 1

@@ -87,6 +87,92 @@
         "threads": 1,
         "fft_threads": 1
       }
+    },
+    {
+      "id": "smoke_yuv420p8_default",
+      "tier": "smoke",
+      "source": {
+        "id": "blank_yuv420p8_64x48_9f",
+        "type": "blank",
+        "width": 64,
+        "height": 48,
+        "length": 9,
+        "format": "YUV420P8",
+        "avs_format": "YV12",
+        "color": [
+          64,
+          96,
+          160
+        ],
+        "avs_color": 0,
+        "avs_color_yuv": "$4060A0"
+      },
+      "frames": [
+        0,
+        4,
+        8
+      ],
+      "params": {
+        "threads": 1,
+        "fft_threads": 1
+      }
+    },
+    {
+      "id": "smoke_yuv444p8_default",
+      "tier": "smoke",
+      "source": {
+        "id": "blank_yuv444p8_64x48_9f",
+        "type": "blank",
+        "width": 64,
+        "height": 48,
+        "length": 9,
+        "format": "YUV444P8",
+        "avs_format": "YV24",
+        "color": [
+          64,
+          96,
+          160
+        ],
+        "avs_color": 0,
+        "avs_color_yuv": "$4060A0"
+      },
+      "frames": [
+        0,
+        4,
+        8
+      ],
+      "params": {
+        "threads": 1,
+        "fft_threads": 1
+      }
+    },
+    {
+      "id": "smoke_rgb24_default",
+      "tier": "smoke",
+      "source": {
+        "id": "blank_rgb24_64x48_9f",
+        "type": "blank",
+        "width": 64,
+        "height": 48,
+        "length": 9,
+        "format": "RGB24",
+        "avs_format": "RGBP",
+        "color": [
+          40,
+          64,
+          120
+        ],
+        "avs_color": 2637944
+      },
+      "frames": [
+        0,
+        4,
+        8
+      ],
+      "params": {
+        "threads": 1,
+        "fft_threads": 1
+      }
     }
   ]
 }
