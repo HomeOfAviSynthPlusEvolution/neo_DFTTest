@@ -38,6 +38,34 @@ struct DFTMutablePlaneBytes {
     int stride_bytes {0};
 };
 
+template<typename T>
+struct DFTConstSamplePlane {
+    const T* data {nullptr};
+    int stride_elements {0};
+};
+
+template<typename T>
+struct DFTMutableSamplePlane {
+    T* data {nullptr};
+    int stride_elements {0};
+};
+
+template<typename T>
+inline DFTConstSamplePlane<T> dft_const_sample_plane(DFTPlaneBytes plane) noexcept {
+    return DFTConstSamplePlane<T>{
+        reinterpret_cast<const T*>(plane.data),
+        plane.stride_bytes / static_cast<int>(sizeof(T))
+    };
+}
+
+template<typename T>
+inline DFTMutableSamplePlane<T> dft_mutable_sample_plane(DFTMutablePlaneBytes plane) noexcept {
+    return DFTMutableSamplePlane<T>{
+        reinterpret_cast<T*>(plane.data),
+        plane.stride_bytes / static_cast<int>(sizeof(T))
+    };
+}
+
 struct DFTMutableFloatSpan {
     float* data {nullptr};
     int size {0};

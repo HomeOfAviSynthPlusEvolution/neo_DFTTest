@@ -7,7 +7,7 @@ static void copyPad(int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, cons
     int dstWidth = context.planes.pad_width[plane];
     int dstHeight = context.planes.pad_height[plane];
     int dstStrideBytes = dst.stride_bytes;
-    int dstStride = dst.stride_bytes / sizeof(T);
+    const auto destination = dft_mutable_sample_plane<T>(dst);
 
     const int offy = (dstHeight - srcHeight) / 2;
     const int offx = (dstWidth - srcWidth) / 2;
@@ -21,7 +21,7 @@ static void copyPad(int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, cons
         dstp0 += dstStrideBytes;
     }
     
-    T * dstp = reinterpret_cast<T *>(dst.data) + dstStride * offy;
+    T * dstp = destination.data + destination.stride_elements * offy;
 
     for (int y = offy; y < srcHeight + offy; y++) {
         int w = offx * 2;
@@ -32,7 +32,7 @@ static void copyPad(int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, cons
         for (int x = offx + srcWidth; x < dstWidth; x++, w--)
             dstp[x] = dstp[w];
 
-        dstp += dstStride;
+        dstp += destination.stride_elements;
     }
 
     int w = offy * 2;

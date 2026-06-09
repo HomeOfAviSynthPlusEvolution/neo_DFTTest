@@ -364,12 +364,13 @@ void ProcessSpatialHighway(unsigned int thread_id, int plane, DFTPlaneBytes src,
     const int width = context.planes.pad_width[plane];
     const int height = context.planes.pad_height[plane];
     const int eheight = context.planes.e_height[plane];
-    const int srcStride = context.planes.pad_stride[plane] / sizeof(T);
+    const auto source = dft_const_sample_plane<T>(src);
+    const int srcStride = source.stride_elements;
     const int ebpStride = context.planes.e_stride[plane];
 
     neo_dfttest::clear_accumulation(workspace, static_cast<std::size_t>(ebpStride) * height);
 
-    const T * srcp = reinterpret_cast<const T *>(src.data);
+    const T * srcp = source.data;
 
     neo_dfttest::run_dft_batch_pipeline(
         context,
@@ -421,8 +422,9 @@ void ProcessSpatialHighway(unsigned int thread_id, int plane, DFTPlaneBytes src,
 
     int dstWidth = context.planes.width[plane];
     int dstHeight = context.planes.height[plane];
-    int dstStride = dst.stride_bytes / sizeof(T);
-    T * dstp = reinterpret_cast<T *>(dst.data);
+    const auto destination = dft_mutable_sample_plane<T>(dst);
+    int dstStride = destination.stride_elements;
+    T * dstp = destination.data;
     const float * ebp = ebuff + ebpStride * ((height - dstHeight) / 2) + (width - dstWidth) / 2;
     
     if (context.block.dither_mode > 0)
@@ -439,14 +441,19 @@ void ProcessTemporalHighway(unsigned int thread_id, int plane, DFTPlaneBytes src
     const int width = context.planes.pad_width[plane];
     const int height = context.planes.pad_height[plane];
     const int eheight = context.planes.e_height[plane];
-    const int srcStride = context.planes.pad_stride[plane] / sizeof(T);
+    const auto first_source = dft_const_sample_plane<T>(src);
+    const int srcStride = first_source.stride_elements;
     const int ebpStride = context.planes.e_stride[plane];
 
     neo_dfttest::clear_accumulation(workspace, static_cast<std::size_t>(ebpStride) * height);
 
     const T * srcp[15] = {}; // Max context.block.temporal_size is 15 based on original code comments
-    for (int i = 0; i < context.block.temporal_size; i++)
-        srcp[i] = reinterpret_cast<const T *>(src.data + context.planes.pad_block_size[plane] * i);
+    for (int i = 0; i < context.block.temporal_size; i++) {
+        const auto source = dft_const_sample_plane<T>(
+            DFTPlaneBytes{src.data + context.planes.pad_block_size[plane] * i, src.stride_bytes}
+        );
+        srcp[i] = source.data;
+    }
 
     neo_dfttest::run_dft_batch_pipeline(
         context,
@@ -498,8 +505,9 @@ void ProcessTemporalHighway(unsigned int thread_id, int plane, DFTPlaneBytes src
 
     int dstWidth = context.planes.width[plane];
     int dstHeight = context.planes.height[plane];
-    int dstStride = dst.stride_bytes / sizeof(T);
-    T * dstp = reinterpret_cast<T *>(dst.data);
+    const auto destination = dft_mutable_sample_plane<T>(dst);
+    int dstStride = destination.stride_elements;
+    T * dstp = destination.data;
     const float * ebp = ebuff + ebpStride * ((height - dstHeight) / 2) + (width - dstWidth) / 2;
     if (context.block.dither_mode > 0)
         Dither(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, context.sample.multiplier, context.sample.peak, context.block.dither_mode, workspace.dither_rng, workspace.dither_buffer);
