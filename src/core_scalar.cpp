@@ -298,7 +298,7 @@ inline void dither<uint8_t>(const float * ebp, uint8_t * VS_RESTRICT dstp, const
 }
 
 template<typename T>
-void process_spatial_scalar(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const DFTKernelContext& context) noexcept {
+void process_spatial_scalar(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const DFTKernelContext& context) {
     float * ebuff = context.scratch.slots[thread_id].ebuff.data();
     float * dftr_base = context.scratch.slots[thread_id].dftr.data();
     auto* dftc_base = context.scratch.slots[thread_id].dftc.data();
@@ -428,7 +428,7 @@ void process_spatial_scalar(unsigned int thread_id, int plane, DFTPlaneBytes src
 }
 
 template<typename T>
-void process_temporal_scalar(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const int pos, const DFTKernelContext& context) noexcept {
+void process_temporal_scalar(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const int pos, const DFTKernelContext& context) {
     float * ebuff = context.scratch.slots[thread_id].ebuff.data();
     float * dftr_base = context.scratch.slots[thread_id].dftr.data();
     auto* dftc_base = context.scratch.slots[thread_id].dftc.data();
@@ -588,9 +588,9 @@ void dither_u8_scalar(DFTConstFloatPlane source, DFTMutableBytePlane destination
     );
 }
 
-template void process_spatial_scalar<uint8_t>(unsigned int, int, DFTPlaneBytes, DFTMutablePlaneBytes, const DFTKernelContext&) noexcept;
-template void process_spatial_scalar<uint16_t>(unsigned int, int, DFTPlaneBytes, DFTMutablePlaneBytes, const DFTKernelContext&) noexcept;
-template void process_spatial_scalar<float>(unsigned int, int, DFTPlaneBytes, DFTMutablePlaneBytes, const DFTKernelContext&) noexcept;
-template void process_temporal_scalar<uint8_t>(unsigned int, int, DFTPlaneBytes, DFTMutablePlaneBytes, int, const DFTKernelContext&) noexcept;
-template void process_temporal_scalar<uint16_t>(unsigned int, int, DFTPlaneBytes, DFTMutablePlaneBytes, int, const DFTKernelContext&) noexcept;
-template void process_temporal_scalar<float>(unsigned int, int, DFTPlaneBytes, DFTMutablePlaneBytes, int, const DFTKernelContext&) noexcept;
+template void process_spatial_scalar<uint8_t>(unsigned int, int, DFTPlaneBytes, DFTMutablePlaneBytes, const DFTKernelContext&);
+template void process_spatial_scalar<uint16_t>(unsigned int, int, DFTPlaneBytes, DFTMutablePlaneBytes, const DFTKernelContext&);
+template void process_spatial_scalar<float>(unsigned int, int, DFTPlaneBytes, DFTMutablePlaneBytes, const DFTKernelContext&);
+template void process_temporal_scalar<uint8_t>(unsigned int, int, DFTPlaneBytes, DFTMutablePlaneBytes, int, const DFTKernelContext&);
+template void process_temporal_scalar<uint16_t>(unsigned int, int, DFTPlaneBytes, DFTMutablePlaneBytes, int, const DFTKernelContext&);
+template void process_temporal_scalar<float>(unsigned int, int, DFTPlaneBytes, DFTMutablePlaneBytes, int, const DFTKernelContext&);

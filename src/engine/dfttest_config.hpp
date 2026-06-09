@@ -5,11 +5,13 @@
 #include <dualsynth/param.hpp>
 #include <dualsynth/video_filter.hpp>
 
+#include <string>
 #include <vector>
 
 namespace neo_dfttest {
 
 struct DfttestConfig {
+  std::string fft_backend = "fftw";
   int fft_threads = 2;
   int ftype = 0;
   int smode = 1;

@@ -138,7 +138,8 @@ ds::FilterDescriptor DFTTestBridge::descriptor() {
       ds::ParamSpec{"a", ds::ParamType::Integer, ds::ParamValue{}, false, false, false, true},
       ds::ParamSpec{"opt", ds::ParamType::Integer},
       ds::ParamSpec{"threads", ds::ParamType::Integer},
-      ds::ParamSpec{"fft_threads", ds::ParamType::Integer}
+      ds::ParamSpec{"fft_threads", ds::ParamType::Integer},
+      ds::ParamSpec{"fft_backend", ds::ParamType::String}
     }
   };
 }

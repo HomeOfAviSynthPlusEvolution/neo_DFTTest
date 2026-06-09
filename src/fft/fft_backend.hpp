@@ -2,6 +2,7 @@
 #define NEO_DFTTEST_FFT_BACKEND_HPP
 
 #include <array>
+#include <complex>
 #include <cstddef>
 #include <memory>
 #include <type_traits>
@@ -10,11 +11,7 @@
 namespace neo_dfttest::fft {
 
 using Real = float;
-
-struct Complex {
-  float real {0.0f};
-  float imag {0.0f};
-};
+using Complex = std::complex<float>;
 
 static_assert(std::is_standard_layout_v<Complex>);
 static_assert(sizeof(Complex) == sizeof(float) * 2);
@@ -169,8 +166,8 @@ public:
     PlanOptions options = {}
   ) = 0;
 
-  virtual Completion submit_r2c(const Plan& plan, R2CBatch batch, SubmitOptions options = {}) const noexcept = 0;
-  virtual Completion submit_c2r(const Plan& plan, C2RBatch batch, SubmitOptions options = {}) const noexcept = 0;
+  virtual Completion submit_r2c(const Plan& plan, R2CBatch batch, SubmitOptions options = {}) const = 0;
+  virtual Completion submit_c2r(const Plan& plan, C2RBatch batch, SubmitOptions options = {}) const = 0;
 };
 
 inline R2CBatch single_r2c_batch(Real* input, Complex* output, std::ptrdiff_t real_stride, std::ptrdiff_t complex_stride) noexcept {
@@ -190,6 +187,7 @@ inline C2RBatch single_c2r_batch(Complex* input, Real* output, std::ptrdiff_t co
 }
 
 std::unique_ptr<Backend> create_fftw_backend();
+std::unique_ptr<Backend> create_pocketfft_backend();
 
 } // namespace neo_dfttest::fft
 

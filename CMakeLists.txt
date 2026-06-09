@@ -17,6 +17,7 @@ add_library(neo-dfttest SHARED
   src/engine/dfttest_config.hpp
   src/fft/fft_backend.hpp
   src/fft/fftw_backend.cpp
+  src/fft/pocketfft_backend.cpp
   src/engine/pixel_plane.hpp
   src/fftwlite.h
   src/memory/aligned_buffer.hpp
@@ -46,6 +47,13 @@ set(HWY_ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(HWY_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
 set(HWY_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(highway)
+
+FetchContent_Declare(
+  pocketfft
+  GIT_REPOSITORY https://github.com/mreineck/pocketfft.git
+  GIT_TAG 5f27d5a8f51c5c25030cb22abf434decc9faf0ff
+)
+FetchContent_MakeAvailable(pocketfft)
 
 set(DS_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(DS_BUILD_ACCEPTANCE_PLUGIN OFF CACHE BOOL "" FORCE)
@@ -105,6 +113,7 @@ endif()
 include_directories(.)
 include_directories(src)
 include_directories(${highway_SOURCE_DIR})
+include_directories(${pocketfft_SOURCE_DIR})
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
   if (CMAKE_GENERATOR_TOOLSET MATCHES "v[0-9]*_xp")

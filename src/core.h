@@ -12,8 +12,8 @@
 #include "dft_common.h"
 
 template<int type> void filter_scalar(DFTFilterInput input) noexcept;
-template<typename T> void process_spatial_scalar(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const DFTKernelContext& context) noexcept;
-template<typename T> void process_temporal_scalar(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, int temporal_position, const DFTKernelContext& context) noexcept;
+template<typename T> void process_spatial_scalar(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const DFTKernelContext& context);
+template<typename T> void process_temporal_scalar(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, int temporal_position, const DFTKernelContext& context);
 
 // Highway functions
 namespace neo_dfttest {

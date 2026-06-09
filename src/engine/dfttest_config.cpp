@@ -38,6 +38,10 @@ bool read_bool(const ds::ParamValues& params, const std::string& name, bool defa
   return unwrap(params.get_bool(name, default_value));
 }
 
+std::string read_string(const ds::ParamValues& params, const std::string& name, std::string default_value) {
+  return unwrap(params.get_string(name, std::move(default_value)));
+}
+
 std::vector<int> read_int_array(
   const ds::ParamValues& params,
   const std::string& name,
@@ -74,6 +78,7 @@ std::vector<float> read_float_array(
 DfttestConfig DfttestConfig::read(const ds::ParamValues& values, DFTTestData& state) {
   DfttestConfig config{};
 
+  config.fft_backend = read_string(values, "fft_backend", config.fft_backend);
   config.ftype = read_int(values, "ftype", 0);
   config.sigma = read_float(values, "sigma", 8.0f);
   config.sigma2 = read_float(values, "sigma2", 8.0f);
@@ -98,6 +103,10 @@ DfttestConfig DfttestConfig::read(const ds::ParamValues& values, DFTTestData& st
   config.fft_threads = read_int(values, "fft_threads", config.fft_threads);
   if (config.fft_threads < 1) {
     config.fft_threads = 1;
+  }
+
+  if (config.fft_backend != "fftw" && config.fft_backend != "pocketfft") {
+    throw std::runtime_error("fft_backend must be 'fftw' or 'pocketfft'");
   }
 
   if (config.smode == 0) {

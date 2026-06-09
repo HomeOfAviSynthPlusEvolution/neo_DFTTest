@@ -27,6 +27,7 @@
 #include <random>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -44,6 +45,20 @@ AlignedBuffer<T> make_aligned_buffer(std::size_t count, const char* name) {
 }
 
 } // namespace detail
+
+namespace {
+
+std::unique_ptr<fft::Backend> create_fft_backend(std::string_view name) {
+  if (name == "fftw") {
+    return fft::create_fftw_backend();
+  }
+  if (name == "pocketfft") {
+    return fft::create_pocketfft_backend();
+  }
+  throw std::runtime_error("unsupported FFT backend");
+}
+
+} // namespace
 
 class DftTestEngine::Impl {
 public:
@@ -70,9 +85,6 @@ public:
     const ds::ParamValues empty_params{};
     const ds::ParamValues& values = params ? *params : empty_params;
 
-    fft_ = fft::create_fftw_backend();
-    fft_->load();
-    state_.fft.backend = fft_.get();
     state_.format.bits_per_sample = ds::bits_per_sample(input.format.sample_format);
     state_.format.bytes_per_sample = ds::bytes_per_sample(input.format.sample_format);
     state_.format.integer = input.format.sample_format != ds::SampleFormat::Float32;
@@ -83,6 +95,9 @@ public:
     state_.format.subsampling_w = input.format.subsampling_w;
 
     config_ = DfttestConfig::read(values, state_);
+    fft_ = create_fft_backend(config_.fft_backend);
+    fft_->load();
+    state_.fft.backend = fft_.get();
     if (config_.fft_threads > 1 && state_.fft.backend->has_threading()) {
       state_.fft.backend->set_thread_count(config_.fft_threads);
     }
