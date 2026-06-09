@@ -76,6 +76,11 @@ struct DFTConstFloatSpan {
     int size {0};
 };
 
+struct DFTConstComplexSpan {
+    const neo_dfttest::fft::Complex* data {nullptr};
+    int size {0};
+};
+
 struct DFTConstFloatPlane {
     const float* data {nullptr};
     int width {0};
@@ -247,6 +252,29 @@ struct DFTCoefficientTables {
     neo_dfttest::AlignedBuffer<neo_dfttest::fft::Complex> window_dft;
 };
 
+struct DFTCoefficientView {
+    DFTConstFloatSpan window;
+    DFTConstFloatSpan sigmas;
+    DFTConstFloatSpan sigmas2;
+    DFTConstFloatSpan pmins;
+    DFTConstFloatSpan pmaxs;
+    DFTConstComplexSpan window_dft;
+};
+
+inline DFTCoefficientView dft_host_coefficient_view(
+    const DFTCoefficientTables& coefficients,
+    const DFTDerivedGeometry& derived
+) noexcept {
+    return DFTCoefficientView{
+        DFTConstFloatSpan{coefficients.window.data(), derived.block_volume},
+        DFTConstFloatSpan{coefficients.sigmas.data(), derived.coefficient_count},
+        DFTConstFloatSpan{coefficients.sigmas2.data(), derived.coefficient_count},
+        DFTConstFloatSpan{coefficients.pmins.data(), derived.coefficient_count},
+        DFTConstFloatSpan{coefficients.pmaxs.data(), derived.coefficient_count},
+        DFTConstComplexSpan{coefficients.window_dft.data(), derived.coefficient_count}
+    };
+}
+
 struct DFTThreadScratchSlot {
     DFTThreadScratchSlot() = default;
     DFTThreadScratchSlot(const DFTThreadScratchSlot&) = delete;
@@ -279,7 +307,7 @@ struct DFTKernelContext {
     const DFTSampleScale& sample;
     const DFTDerivedGeometry& derived;
     const DFTBatchPolicy& batch_policy;
-    const DFTCoefficientTables& coefficients;
+    DFTCoefficientView coefficients;
     DFTThreadScratch& scratch;
     DFTFilterPlan filter_plan;
 };
@@ -306,7 +334,7 @@ inline DFTKernelContext make_kernel_context(const DFTTestData& state) noexcept {
         state.sample,
         state.derived,
         state.batch_policy,
-        state.coefficients,
+        dft_host_coefficient_view(state.coefficients, state.derived),
         state.scratch,
         state.kernels.filter_plan
     };
@@ -326,15 +354,15 @@ inline DFTFilterInput make_filter_input(
 ) noexcept {
     const float* pmins = context.filter_plan.custom_f0_beta
         ? &context.block.f0_beta
-        : context.coefficients.pmins.data();
+        : context.coefficients.pmins.data;
     const int pmins_size = context.filter_plan.custom_f0_beta ? 1 : context.derived.coefficient_count;
 
     return DFTFilterInput{
         DFTMutableFloatSpan{complex_float_data(coefficients), context.derived.coefficient_count},
-        DFTConstFloatSpan{context.coefficients.sigmas.data(), context.derived.coefficient_count},
+        DFTConstFloatSpan{context.coefficients.sigmas.data, context.derived.coefficient_count},
         DFTConstFloatSpan{pmins, pmins_size},
-        DFTConstFloatSpan{context.coefficients.pmaxs.data(), context.derived.coefficient_count},
-        DFTConstFloatSpan{context.coefficients.sigmas2.data(), context.derived.coefficient_count}
+        DFTConstFloatSpan{context.coefficients.pmaxs.data, context.derived.coefficient_count},
+        DFTConstFloatSpan{context.coefficients.sigmas2.data, context.derived.coefficient_count}
     };
 }
 

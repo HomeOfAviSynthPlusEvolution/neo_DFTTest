@@ -378,14 +378,14 @@ void ProcessSpatialHighway(unsigned int thread_id, int plane, DFTPlaneBytes src,
         width,
         eheight,
         [&](int y, int x, float* dftr) {
-            LoadWindowedBlock(srcp + y * srcStride + x, context.coefficients.window.data(), dftr, srcStride, context.block.spatial_size, context.sample.divisor);
+            LoadWindowedBlock(srcp + y * srcStride + x, context.coefficients.window.data, dftr, srcStride, context.block.spatial_size, context.sample.divisor);
         },
         [&](neo_dfttest::DFTCompletedBatch ready) {
             for (int index = 0; index < ready.batch.count; ++index) {
                 auto* dftc = dft_complex_batch_data(ready.coefficients, ready.complex_stride, index);
                 auto* dftc2 = dft_complex_batch_data(ready.removed_mean, ready.complex_stride, index);
                 if (context.block.zero_mean)
-                    RemoveMeanHighway(complex_float_data(dftc), complex_float_data(context.coefficients.window_dft.data()), context.derived.coefficient_count, complex_float_data(dftc2));
+                    RemoveMeanHighway(complex_float_data(dftc), complex_float_data(context.coefficients.window_dft.data), context.derived.coefficient_count, complex_float_data(dftc2));
 
                 FilterCoefficientsHighway(context.filter_plan, make_filter_input(dftc, context));
 
@@ -410,12 +410,12 @@ void ProcessSpatialHighway(unsigned int thread_id, int plane, DFTPlaneBytes src,
                     using D_f = hn::ScalableTag<float>;
                     const size_t N_f = hn::Lanes(D_f()); // Get lane count for float
                     if (!(context.block.spatial_size & (N_f - 1))) // Check alignment relative to Highway's float vector width
-                         AccumulateOverlap(dftr, context.coefficients.window.data(), output_row + block_x, context.block.spatial_size, ebpStride);
+                         AccumulateOverlap(dftr, context.coefficients.window.data, output_row + block_x, context.block.spatial_size, ebpStride);
                     else
-                         AccumulateOverlapPartial(dftr, context.coefficients.window.data(), output_row + block_x, context.block.spatial_size, ebpStride);
+                         AccumulateOverlapPartial(dftr, context.coefficients.window.data, output_row + block_x, context.block.spatial_size, ebpStride);
                 }
                 else
-                    output_row[block_x + context.derived.spatial_center * ebpStride + context.derived.spatial_center] = dftr[context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center] * context.coefficients.window.data()[context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center];
+                    output_row[block_x + context.derived.spatial_center * ebpStride + context.derived.spatial_center] = dftr[context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center] * context.coefficients.window.data[context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center];
             }
         }
     );
@@ -462,14 +462,14 @@ void ProcessTemporalHighway(unsigned int thread_id, int plane, DFTPlaneBytes src
         eheight,
         [&](int y, int x, float* dftr) {
             for (int z = 0; z < context.block.temporal_size; z++)
-                LoadWindowedBlock(srcp[z] + y * srcStride + x, context.coefficients.window.data() + context.derived.block_area * z, dftr + context.derived.block_area * z, srcStride, context.block.spatial_size, context.sample.divisor);
+                LoadWindowedBlock(srcp[z] + y * srcStride + x, context.coefficients.window.data + context.derived.block_area * z, dftr + context.derived.block_area * z, srcStride, context.block.spatial_size, context.sample.divisor);
         },
         [&](neo_dfttest::DFTCompletedBatch ready) {
             for (int index = 0; index < ready.batch.count; ++index) {
                 auto* dftc = dft_complex_batch_data(ready.coefficients, ready.complex_stride, index);
                 auto* dftc2 = dft_complex_batch_data(ready.removed_mean, ready.complex_stride, index);
                 if (context.block.zero_mean)
-                    RemoveMeanHighway(complex_float_data(dftc), complex_float_data(context.coefficients.window_dft.data()), context.derived.coefficient_count, complex_float_data(dftc2));
+                    RemoveMeanHighway(complex_float_data(dftc), complex_float_data(context.coefficients.window_dft.data), context.derived.coefficient_count, complex_float_data(dftc2));
 
                 FilterCoefficientsHighway(context.filter_plan, make_filter_input(dftc, context));
 
@@ -493,12 +493,12 @@ void ProcessTemporalHighway(unsigned int thread_id, int plane, DFTPlaneBytes src
                     using D_f = hn::ScalableTag<float>;
                     const size_t N_f = hn::Lanes(D_f());
                     if (!(context.block.spatial_size & (N_f - 1)))
-                        AccumulateOverlap(dftr + pos * context.derived.block_area, context.coefficients.window.data() + pos * context.derived.block_area, ebuff + ready.y * ebpStride + block_x, context.block.spatial_size, ebpStride);
+                        AccumulateOverlap(dftr + pos * context.derived.block_area, context.coefficients.window.data + pos * context.derived.block_area, ebuff + ready.y * ebpStride + block_x, context.block.spatial_size, ebpStride);
                     else
-                        AccumulateOverlapPartial(dftr + pos * context.derived.block_area, context.coefficients.window.data() + pos * context.derived.block_area, ebuff + ready.y * ebpStride + block_x, context.block.spatial_size, ebpStride);
+                        AccumulateOverlapPartial(dftr + pos * context.derived.block_area, context.coefficients.window.data + pos * context.derived.block_area, ebuff + ready.y * ebpStride + block_x, context.block.spatial_size, ebpStride);
                 }
                 else
-                    ebuff[(ready.y + context.derived.spatial_center) * ebpStride + block_x + context.derived.spatial_center] = dftr[pos * context.derived.block_area + context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center] * context.coefficients.window.data()[pos * context.derived.block_area + context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center];
+                    ebuff[(ready.y + context.derived.spatial_center) * ebpStride + block_x + context.derived.spatial_center] = dftr[pos * context.derived.block_area + context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center] * context.coefficients.window.data[pos * context.derived.block_area + context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center];
             }
         }
     );

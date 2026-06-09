@@ -349,7 +349,7 @@ void process_spatial_scalar(unsigned int thread_id, int plane, DFTPlaneBytes src
         [&](int y, int x, float* dftr) noexcept {
             load_windowed_block<T>(
                 DFTConstSampleBlock<T>{srcp + y * srcStride + x, srcStride, context.block.spatial_size},
-                DFTConstFloatSpan{context.coefficients.window.data(), context.derived.block_area},
+                DFTConstFloatSpan{context.coefficients.window.data, context.derived.block_area},
                 DFTMutableFloatSpan{dftr, context.derived.block_area},
                 context.sample.divisor
             );
@@ -361,7 +361,7 @@ void process_spatial_scalar(unsigned int thread_id, int plane, DFTPlaneBytes src
                 if (context.block.zero_mean)
                     remove_mean(
                         DFTMutableFloatSpan{complex_float_data(dftc), context.derived.coefficient_count},
-                        DFTConstFloatSpan{complex_float_data(context.coefficients.window_dft.data()), context.derived.coefficient_count},
+                        DFTConstFloatSpan{complex_float_data(context.coefficients.window_dft.data), context.derived.coefficient_count},
                         DFTMutableFloatSpan{complex_float_data(dftc2), context.derived.coefficient_count}
                     );
 
@@ -388,9 +388,9 @@ void process_spatial_scalar(unsigned int thread_id, int plane, DFTPlaneBytes src
                 float* dftr = dft_real_batch_data(ready.real, ready.real_stride, index);
                 const int block_x = ready.batch.x_offsets[static_cast<std::size_t>(index)];
                 if (context.derived.transform_type & 1) // spatial overlapping
-                    accumulate_overlap(dftr, context.coefficients.window.data(), output_row + block_x, context.block.spatial_size, ebpStride);
+                    accumulate_overlap(dftr, context.coefficients.window.data, output_row + block_x, context.block.spatial_size, ebpStride);
                 else
-                    output_row[block_x + context.derived.spatial_center * ebpStride + context.derived.spatial_center] = dftr[context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center] * context.coefficients.window.data()[context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center];
+                    output_row[block_x + context.derived.spatial_center * ebpStride + context.derived.spatial_center] = dftr[context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center] * context.coefficients.window.data[context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center];
             }
         }
     );
@@ -438,7 +438,7 @@ void process_temporal_scalar(unsigned int thread_id, int plane, DFTPlaneBytes sr
             for (int z = 0; z < context.block.temporal_size; z++)
                 load_windowed_block<T>(
                     DFTConstSampleBlock<T>{srcp[z] + y * srcStride + x, srcStride, context.block.spatial_size},
-                    DFTConstFloatSpan{context.coefficients.window.data() + context.derived.block_area * z, context.derived.block_area},
+                    DFTConstFloatSpan{context.coefficients.window.data + context.derived.block_area * z, context.derived.block_area},
                     DFTMutableFloatSpan{dftr + context.derived.block_area * z, context.derived.block_area},
                     context.sample.divisor
                 );
@@ -450,7 +450,7 @@ void process_temporal_scalar(unsigned int thread_id, int plane, DFTPlaneBytes sr
                 if (context.block.zero_mean)
                     remove_mean(
                         DFTMutableFloatSpan{complex_float_data(dftc), context.derived.coefficient_count},
-                        DFTConstFloatSpan{complex_float_data(context.coefficients.window_dft.data()), context.derived.coefficient_count},
+                        DFTConstFloatSpan{complex_float_data(context.coefficients.window_dft.data), context.derived.coefficient_count},
                         DFTMutableFloatSpan{complex_float_data(dftc2), context.derived.coefficient_count}
                     );
 
@@ -476,9 +476,9 @@ void process_temporal_scalar(unsigned int thread_id, int plane, DFTPlaneBytes sr
                 float* dftr = dft_real_batch_data(ready.real, ready.real_stride, index);
                 const int block_x = ready.batch.x_offsets[static_cast<std::size_t>(index)];
                 if (context.derived.transform_type & 1) // spatial overlapping
-                    accumulate_overlap(dftr + pos * context.derived.block_area, context.coefficients.window.data() + pos * context.derived.block_area, ebuff + ready.y * ebpStride + block_x, context.block.spatial_size, ebpStride);
+                    accumulate_overlap(dftr + pos * context.derived.block_area, context.coefficients.window.data + pos * context.derived.block_area, ebuff + ready.y * ebpStride + block_x, context.block.spatial_size, ebpStride);
                 else
-                    ebuff[(ready.y + context.derived.spatial_center) * ebpStride + block_x + context.derived.spatial_center] = dftr[pos * context.derived.block_area + context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center] * context.coefficients.window.data()[pos * context.derived.block_area + context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center];
+                    ebuff[(ready.y + context.derived.spatial_center) * ebpStride + block_x + context.derived.spatial_center] = dftr[pos * context.derived.block_area + context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center] * context.coefficients.window.data[pos * context.derived.block_area + context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center];
             }
         }
     );
