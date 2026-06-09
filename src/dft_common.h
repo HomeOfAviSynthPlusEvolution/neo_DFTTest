@@ -1,5 +1,4 @@
-#ifndef DFT_COMMON_H
-#define DFT_COMMON_H
+#pragma once
 
 #include <cstdint>
 #include <cstddef>
@@ -316,5 +315,3 @@ void remove_mean_scalar(DFTMutableFloatSpan coefficients, DFTConstFloatSpan refe
 template<typename T>
 void load_windowed_block_scalar(DFTConstSampleBlock<T> source, DFTConstFloatSpan window, DFTMutableFloatSpan destination, float divisor) noexcept;
 void dither_u8_scalar(DFTConstFloatPlane source, DFTMutableBytePlane destination, DFTDitherContext context) noexcept;
-
-#endif

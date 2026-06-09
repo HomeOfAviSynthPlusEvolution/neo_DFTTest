@@ -1,5 +1,4 @@
-#ifndef CORE_BATCH_PIPELINE_HPP
-#define CORE_BATCH_PIPELINE_HPP
+#pragma once
 
 #include "dft_common.h"
 
@@ -100,5 +99,3 @@ void run_dft_batch_pipeline(
 }
 
 } // namespace neo_dfttest
-
-#endif

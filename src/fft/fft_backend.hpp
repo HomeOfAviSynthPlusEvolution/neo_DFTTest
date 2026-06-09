@@ -1,5 +1,4 @@
-#ifndef NEO_DFTTEST_FFT_BACKEND_HPP
-#define NEO_DFTTEST_FFT_BACKEND_HPP
+#pragma once
 
 #include <array>
 #include <complex>
@@ -205,5 +204,3 @@ std::unique_ptr<Backend> create_vkfft_vulkan_backend();
 #endif
 
 } // namespace neo_dfttest::fft
-
-#endif

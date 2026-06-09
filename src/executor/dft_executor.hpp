@@ -1,5 +1,4 @@
-#ifndef NEO_DFTTEST_DFT_EXECUTOR_HPP
-#define NEO_DFTTEST_DFT_EXECUTOR_HPP
+#pragma once
 
 #include "dft_common.h"
 
@@ -32,5 +31,3 @@ public:
 std::unique_ptr<DftExecutor> create_cpu_dft_executor(DFTKernelDispatch dispatch);
 
 } // namespace neo_dfttest
-
-#endif

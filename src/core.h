@@ -1,5 +1,4 @@
-#ifndef CORE_H
-#define CORE_H
+#pragma once
 
 #define _USE_MATH_DEFINES
 #include <cmath>
@@ -19,5 +18,3 @@ template<typename T> void process_temporal_scalar(unsigned int thread_id, int pl
 namespace neo_dfttest {
     DFTKernelDispatch make_highway_dispatch(DFTFilterPlan filter_plan, const DFTClipFormat& format);
 }
-
-#endif

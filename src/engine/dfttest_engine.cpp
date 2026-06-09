@@ -1,9 +1,3 @@
-/*
- * Copyright 2020 Xinyue Lu
- *
- * DFTTest engine implementation.
- */
-
 #include "engine/dfttest_engine.hpp"
 
 #include <avisynth.h>

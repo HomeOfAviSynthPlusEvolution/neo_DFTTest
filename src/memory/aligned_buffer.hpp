@@ -1,5 +1,4 @@
-#ifndef NEO_DFTTEST_ALIGNED_BUFFER_HPP
-#define NEO_DFTTEST_ALIGNED_BUFFER_HPP
+#pragma once
 
 #include <cstddef>
 #include <cstdlib>
@@ -87,5 +86,3 @@ private:
 };
 
 } // namespace neo_dfttest
-
-#endif
