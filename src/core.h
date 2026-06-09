@@ -9,16 +9,16 @@
 
 #include "dft_common.h"
 
-template<int type> void filter_c(float *, const float *, const int, const float *, const float *, const float *) noexcept;
-template<typename T> void func_0_c(unsigned int thread_id, int plane, const unsigned char *, unsigned char *, int, const DFTTestData *) noexcept;
-template<typename T> void func_1_c(unsigned int thread_id, int plane, const unsigned char *, unsigned char *, int, const int, const DFTTestData *) noexcept;
+template<int type> void filter_c(DFTFilterInput input) noexcept;
+template<typename T> void func_0_c(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const DFTKernelContext& context) noexcept;
+template<typename T> void func_1_c(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, int temporal_position, const DFTKernelContext& context) noexcept;
 
 // Highway functions
 namespace neo_dfttest {
-    using FilterFunc = void (*)(float *, const float *, const int, const float *, const float *, const float *);
+    using FilterFunc = void (*)(DFTFilterInput input);
     FilterFunc GetHighwayFilter(int ftype, float f0beta);
-    DFTProcessSpatialFunction GetHighwayFunc0(const DFTTestData& d);
-    DFTProcessTemporalFunction GetHighwayFunc1(const DFTTestData& d);
+    DFTProcessSpatialFunction GetHighwayFunc0(const DFTClipFormat& format);
+    DFTProcessTemporalFunction GetHighwayFunc1(const DFTClipFormat& format);
 
     // Getters for internal testing
     using Proc0Func_u8 = void (*)(const uint8_t*, const float*, float*, int, int, float);

@@ -1,27 +1,29 @@
 #include "core.h"
 
+#include <stdexcept>
+
 template<typename T>
-static void copyPad(int plane, const unsigned char * src_ptr, int src_stride_bytes, unsigned char * dst_ptr, const DFTTestData * d) noexcept {
-    int srcWidth = d->planes.width[plane];
-    int srcHeight = d->planes.height[plane];
-    int dstWidth = d->planes.pad_width[plane];
-    int dstHeight = d->planes.pad_height[plane];
-    int dstStrideBytes = d->planes.pad_stride[plane];
-    int dstStride = d->planes.pad_stride[plane] / sizeof(T);
+static void copyPad(int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const DFTKernelContext& context) noexcept {
+    int srcWidth = context.planes.width[plane];
+    int srcHeight = context.planes.height[plane];
+    int dstWidth = context.planes.pad_width[plane];
+    int dstHeight = context.planes.pad_height[plane];
+    int dstStrideBytes = dst.stride_bytes;
+    int dstStride = dst.stride_bytes / sizeof(T);
 
     const int offy = (dstHeight - srcHeight) / 2;
     const int offx = (dstWidth - srcWidth) / 2;
 
-    const unsigned char * scrp0 = src_ptr;
-    unsigned char * dstp0 = dst_ptr + dstStrideBytes * offy + offx * sizeof(T);
+    const unsigned char * scrp0 = src.data;
+    unsigned char * dstp0 = dst.data + dstStrideBytes * offy + offx * sizeof(T);
     for (int h = 0; h < srcHeight; h++)
     {
         memcpy(dstp0, scrp0, srcWidth * sizeof(T));
-        scrp0 += src_stride_bytes;
+        scrp0 += src.stride_bytes;
         dstp0 += dstStrideBytes;
     }
     
-    T * dstp = reinterpret_cast<T *>(dst_ptr) + dstStride * offy;
+    T * dstp = reinterpret_cast<T *>(dst.data) + dstStride * offy;
 
     for (int y = offy; y < srcHeight + offy; y++) {
         int w = offx * 2;
@@ -37,11 +39,11 @@ static void copyPad(int plane, const unsigned char * src_ptr, int src_stride_byt
 
     int w = offy * 2;
     for (int y = 0; y < offy; y++, w--)
-        memcpy(dst_ptr + dstStrideBytes * y, dst_ptr + dstStrideBytes * w, dstWidth * sizeof(T));
+        memcpy(dst.data + dstStrideBytes * y, dst.data + dstStrideBytes * w, dstWidth * sizeof(T));
 
     w = offy + srcHeight - 2;
     for (int y = offy + srcHeight; y < dstHeight; y++, w--)
-        memcpy(dst_ptr + dstStrideBytes * y, dst_ptr + dstStrideBytes * w, dstWidth * sizeof(T));
+        memcpy(dst.data + dstStrideBytes * y, dst.data + dstStrideBytes * w, dstWidth * sizeof(T));
 }
 
 static double besselI0(double p) noexcept {
@@ -100,8 +102,9 @@ static double getWinValue(const double n, const double size, const int win, cons
     }
 }
 
-static void normalizeForOverlapAdd(double * VS_RESTRICT hw, const int bsize, const int osize) noexcept {
-    double * VS_RESTRICT nw = new double[bsize]();
+static void normalizeForOverlapAdd(std::vector<double>& hw, const int osize) noexcept {
+    const int bsize = static_cast<int>(hw.size());
+    std::vector<double> nw(static_cast<std::size_t>(bsize), 0.0);
     const int inc = bsize - osize;
 
     for (int q = 0; q < bsize; q++) {
@@ -113,51 +116,44 @@ static void normalizeForOverlapAdd(double * VS_RESTRICT hw, const int bsize, con
 
     for (int q = 0; q < bsize; q++)
         hw[q] /= std::sqrt(nw[q]);
-
-    delete[] nw;
 }
 
-void createWindow(float * VS_RESTRICT hw, const int tmode, const int smode, const DFTTestData * d) noexcept {
-    double * VS_RESTRICT tw = new double[d->block.temporal_size];
-    for (int j = 0; j < d->block.temporal_size; j++)
-        tw[j] = getWinValue(j + 0.5, d->block.temporal_size, d->block.temporal_window, d->block.temporal_beta);
+void createWindow(DFTMutableFloatSpan window, const int tmode, const int smode, const DFTBlockSettings& block, const DFTDerivedGeometry& derived) noexcept {
+    std::vector<double> tw(static_cast<std::size_t>(block.temporal_size));
+    for (int j = 0; j < block.temporal_size; j++)
+        tw[j] = getWinValue(j + 0.5, block.temporal_size, block.temporal_window, block.temporal_beta);
     if (tmode == 1)
-        normalizeForOverlapAdd(tw, d->block.temporal_size, d->block.temporal_overlap);
+        normalizeForOverlapAdd(tw, block.temporal_overlap);
 
-    double * VS_RESTRICT sw = new double[d->block.spatial_size];
-    for (int j = 0; j < d->block.spatial_size; j++)
-        sw[j] = getWinValue(j + 0.5, d->block.spatial_size, d->block.spatial_window, d->block.spatial_beta);
+    std::vector<double> sw(static_cast<std::size_t>(block.spatial_size));
+    for (int j = 0; j < block.spatial_size; j++)
+        sw[j] = getWinValue(j + 0.5, block.spatial_size, block.spatial_window, block.spatial_beta);
     if (smode == 1)
-        normalizeForOverlapAdd(sw, d->block.spatial_size, d->block.spatial_overlap);
+        normalizeForOverlapAdd(sw, block.spatial_overlap);
 
-    const double nscale = 1. / std::sqrt(d->derived.block_volume);
-    for (int j = 0; j < d->block.temporal_size; j++)
-        for (int k = 0; k < d->block.spatial_size; k++)
-            for (int q = 0; q < d->block.spatial_size; q++)
-                hw[(j * d->block.spatial_size + k) * d->block.spatial_size + q] = static_cast<float>(tw[j] * sw[k] * sw[q] * nscale);
-
-    delete[] tw;
-    delete[] sw;
+    const double nscale = 1. / std::sqrt(derived.block_volume);
+    for (int j = 0; j < block.temporal_size; j++)
+        for (int k = 0; k < block.spatial_size; k++)
+            for (int q = 0; q < block.spatial_size; q++)
+                window.data[(j * block.spatial_size + k) * block.spatial_size + q] = static_cast<float>(tw[j] * sw[k] * sw[q] * nscale);
 }
 
-float * parseSigmaLocation(const std::vector<float> s, int & poscnt, const float sigma, const float pfact) {
-    float * parray = nullptr;
-
+std::vector<float> parseSigmaLocation(const std::vector<float>& s, const float sigma, const float pfact) {
     if (s.empty()) {
-        parray = new float[4];
+        std::vector<float> parray(4);
         parray[0] = 0.0f;
         parray[2] = 1.0f;
         parray[1] = parray[3] = std::pow(sigma, pfact);
-        poscnt = 2;
+        return parray;
     } else {
         bool found[2] = { false, false };
-        poscnt = 0;
+        int poscnt = 0;
 
         for (int i = 0; i < s.size(); i += 2) {
             const float pos = s[i];
 
             if (pos < 0.0f || pos > 1.0f)
-                throw strdup((std::string{ "sigma location - invalid pos (" } + std::to_string(pos) + ")").c_str());
+                throw std::runtime_error(std::string{ "sigma location - invalid pos (" } + std::to_string(pos) + ")");
 
             if (pos == 0.0f)
                 found[0] = true;
@@ -168,9 +164,9 @@ float * parseSigmaLocation(const std::vector<float> s, int & poscnt, const float
         }
 
         if (!found[0] || !found[1])
-            throw "sigma location - one or more end points not provided";
+            throw std::runtime_error("sigma location - one or more end points not provided");
 
-        parray = new float[poscnt * 2];
+        std::vector<float> parray(static_cast<std::size_t>(poscnt) * 2);
         poscnt = 0;
 
         for (int i = 0; i < s.size(); i += 2) {
@@ -194,9 +190,9 @@ float * parseSigmaLocation(const std::vector<float> s, int & poscnt, const float
             parray[j * 2 + 0] = t0;
             parray[j * 2 + 1] = t1;
         }
-    }
 
-    return parray;
+        return parray;
+    }
 }
 
 float interp(const float pf, const float * pv, const int cnt) noexcept {
@@ -243,13 +239,13 @@ float getSVal(const int pos, const int len, const float * pv, const int cnt, flo
     return interp(pf, pv, cnt);
 }
 
-DFTKernelDispatch selectFunctions(const unsigned ftype, const unsigned opt, const DFTTestData& d) noexcept {
+DFTKernelDispatch selectFunctions(const unsigned ftype, const unsigned opt, const DFTClipFormat& format, const DFTBlockSettings& block) noexcept {
     DFTKernelDispatch kernels {};
 
     if (ftype == 0) {
-        if (std::abs(d.block.f0_beta - 1.0f) < 0.00005f)
+        if (std::abs(block.f0_beta - 1.0f) < 0.00005f)
             kernels.filter_coefficients = filter_c<0>;
-        else if (std::abs(d.block.f0_beta - 0.5f) < 0.00005f)
+        else if (std::abs(block.f0_beta - 0.5f) < 0.00005f)
             kernels.filter_coefficients = filter_c<6>;
         else
             kernels.filter_coefficients = filter_c<5>;
@@ -263,11 +259,11 @@ DFTKernelDispatch selectFunctions(const unsigned ftype, const unsigned opt, cons
         kernels.filter_coefficients = filter_c<4>;
     }
 
-    if (d.format.bytes_per_sample == 1) {
+    if (format.bytes_per_sample == 1) {
         kernels.copy_pad = copyPad<uint8_t>;
         kernels.process_spatial = func_0_c<uint8_t>;
         kernels.process_temporal = func_1_c<uint8_t>;
-    } else if (d.format.bytes_per_sample == 2) {
+    } else if (format.bytes_per_sample == 2) {
         kernels.copy_pad = copyPad<uint16_t>;
         kernels.process_spatial = func_0_c<uint16_t>;
         kernels.process_temporal = func_1_c<uint16_t>;
@@ -278,9 +274,9 @@ DFTKernelDispatch selectFunctions(const unsigned ftype, const unsigned opt, cons
     }
 
     if (opt == 0 || opt == 3 || opt == 8) {
-        kernels.filter_coefficients = neo_dfttest::GetHighwayFilter(ftype, d.block.f0_beta);
-        kernels.process_spatial = neo_dfttest::GetHighwayFunc0(d);
-        kernels.process_temporal = neo_dfttest::GetHighwayFunc1(d);
+        kernels.filter_coefficients = neo_dfttest::GetHighwayFilter(ftype, block.f0_beta);
+        kernels.process_spatial = neo_dfttest::GetHighwayFunc0(format);
+        kernels.process_temporal = neo_dfttest::GetHighwayFunc1(format);
     }
 
     return kernels;

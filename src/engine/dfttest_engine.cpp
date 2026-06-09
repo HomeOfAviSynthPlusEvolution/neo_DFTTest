@@ -93,7 +93,12 @@ public:
     state_.block.worker_threads = 1;
 #endif
 
-    state_.kernels = selectFunctions(static_cast<unsigned>(config_.ftype), static_cast<unsigned>(config_.opt), state_);
+    state_.kernels = selectFunctions(
+      static_cast<unsigned>(config_.ftype),
+      static_cast<unsigned>(config_.opt),
+      state_.format,
+      state_.block
+    );
 
     if (state_.format.integer) {
       state_.sample.multiplier = static_cast<float>(1 << (state_.format.bits_per_sample - 8));
@@ -232,7 +237,13 @@ private:
   void create_fft_plans() {
     state_.coefficients.window =
       detail::make_aligned_buffer<float>(state_.derived.block_volume + 7, "hw");
-    createWindow(state_.coefficients.window.data(), config_.tmode, config_.smode, &state_);
+    createWindow(
+      DFTMutableFloatSpan{state_.coefficients.window.data(), state_.derived.block_volume},
+      config_.tmode,
+      config_.smode,
+      state_.block,
+      state_.derived
+    );
 
     auto dftgr = detail::make_aligned_buffer<float>(state_.derived.block_volume + 7, "dftgr");
     state_.coefficients.window_dft =
@@ -330,26 +341,23 @@ private:
     }
 
     const float ndiv = 1.0f / static_cast<float>(ndim);
-    int tcnt = 0;
-    int sycnt = 0;
-    int sxcnt = 0;
-    float* tdata = nullptr;
-    float* sydata = nullptr;
-    float* sxdata = nullptr;
+    std::vector<float> tdata;
+    std::vector<float> sydata;
+    std::vector<float> sxdata;
 
     if (!config_.slocation.empty()) {
-      tdata = parseSigmaLocation(config_.slocation, tcnt, config_.sigma, config_.ssystem ? 1.0f : ndiv);
-      sydata = parseSigmaLocation(config_.slocation, sycnt, config_.sigma, config_.ssystem ? 1.0f : ndiv);
-      sxdata = parseSigmaLocation(config_.slocation, sxcnt, config_.sigma, config_.ssystem ? 1.0f : ndiv);
+      tdata = parseSigmaLocation(config_.slocation, config_.sigma, config_.ssystem ? 1.0f : ndiv);
+      sydata = parseSigmaLocation(config_.slocation, config_.sigma, config_.ssystem ? 1.0f : ndiv);
+      sxdata = parseSigmaLocation(config_.slocation, config_.sigma, config_.ssystem ? 1.0f : ndiv);
     } else {
-      tdata = parseSigmaLocation(config_.sst, tcnt, config_.sigma, ndiv);
-      sydata = parseSigmaLocation(config_.ssy, sycnt, config_.sigma, ndiv);
-      sxdata = parseSigmaLocation(config_.ssx, sxcnt, config_.sigma, ndiv);
+      tdata = parseSigmaLocation(config_.sst, config_.sigma, ndiv);
+      sydata = parseSigmaLocation(config_.ssy, config_.sigma, ndiv);
+      sxdata = parseSigmaLocation(config_.ssx, config_.sigma, ndiv);
     }
 
-    std::unique_ptr<float[]> t_smart(tdata);
-    std::unique_ptr<float[]> sx_smart(sxdata);
-    std::unique_ptr<float[]> sy_smart(sydata);
+    const int tcnt = static_cast<int>(tdata.size() / 2);
+    const int sycnt = static_cast<int>(sydata.size() / 2);
+    const int sxcnt = static_cast<int>(sxdata.size() / 2);
 
     const int cpx = state_.block.spatial_size / 2 + 1;
     float pft = 0.0f;
@@ -357,16 +365,16 @@ private:
     float pfx = 0.0f;
 
     for (int z = 0; z < state_.block.temporal_size; z++) {
-      const float tval = getSVal(z, state_.block.temporal_size, tdata, tcnt, pft);
+      const float tval = getSVal(z, state_.block.temporal_size, tdata.data(), tcnt, pft);
       for (int y = 0; y < state_.block.spatial_size; y++) {
-        const float syval = getSVal(y, state_.block.spatial_size, sydata, sycnt, pfy);
+        const float syval = getSVal(y, state_.block.spatial_size, sydata.data(), sycnt, pfy);
         for (int x = 0; x < cpx; x++) {
-          const float sxval = getSVal(x, state_.block.spatial_size, sxdata, sxcnt, pfx);
+          const float sxval = getSVal(x, state_.block.spatial_size, sxdata.data(), sxcnt, pfx);
           float val = 0.0f;
 
           if (config_.ssystem) {
             const float dw = std::sqrt((pft * pft + pfy * pfy + pfx * pfx) / static_cast<float>(ndim));
-            val = interp(dw, tdata, tcnt);
+            val = interp(dw, tdata.data(), tcnt);
           } else {
             val = tval * syval * sxval;
           }
@@ -431,7 +439,13 @@ private:
     );
 
     auto hw2 = detail::make_aligned_buffer<float>(state_.derived.block_volume + 7, "hw2");
-    createWindow(hw2.data(), 0, 0, &state_);
+    createWindow(
+      DFTMutableFloatSpan{hw2.data(), state_.derived.block_volume},
+      0,
+      0,
+      state_.block,
+      state_.derived
+    );
 
     auto dftr = detail::make_aligned_buffer<float>(state_.derived.block_volume + 7, "dftr");
     auto dftgc2 = detail::make_aligned_buffer<fft::Complex>(state_.derived.complex_count + 7, "dftgc2");
@@ -506,6 +520,8 @@ private:
     const ds::VideoFrameView& src,
     ds::MutableVideoFrameView& dst
   ) {
+    const DFTKernelContext kernel_context = make_kernel_context(state_);
+
     for (int plane = 0; plane < state_.format.num_planes; plane++) {
       const auto src_plane = engine::read_plane(src, plane, state_);
       const auto dst_plane = engine::write_plane(dst, plane, state_);
@@ -515,8 +531,20 @@ private:
           state_.planes.pad_block_size[plane] * state_.block.temporal_size,
           "pad0"
         );
-        state_.kernels.copy_pad(plane, src_plane.data, src_plane.stride_bytes, pad.data(), &state_);
-        state_.kernels.process_spatial(thread_id, plane, pad.data(), dst_plane.data, dst_plane.stride_bytes, &state_);
+        const DFTMutablePlaneBytes padded_plane{pad.data(), state_.planes.pad_stride[plane]};
+        state_.kernels.copy_pad(
+          plane,
+          DFTPlaneBytes{src_plane.data, src_plane.stride_bytes},
+          padded_plane,
+          kernel_context
+        );
+        state_.kernels.process_spatial(
+          thread_id,
+          plane,
+          DFTPlaneBytes{padded_plane.data, padded_plane.stride_bytes},
+          DFTMutablePlaneBytes{dst_plane.data, dst_plane.stride_bytes},
+          kernel_context
+        );
       } else if (state_.planes.process[plane] == 2) {
         engine::copy_plane_rows(src_plane, dst_plane);
       }
@@ -531,6 +559,7 @@ private:
     ds::MutableVideoFrameView& dst
   ) {
     const int pos = state_.block.temporal_size / 2;
+    const DFTKernelContext kernel_context = make_kernel_context(state_);
 
     for (int plane = 0; plane < state_.format.num_planes; plane++) {
       const auto src0_plane = engine::read_plane(current, plane, state_);
@@ -552,17 +581,21 @@ private:
 
           const auto src_plane = engine::read_plane(src_frame.value().frame, plane, state_);
           auto* pad = pad0.data() + state_.planes.pad_block_size[plane] * i;
-          state_.kernels.copy_pad(plane, src_plane.data, src_plane.stride_bytes, pad, &state_);
+          state_.kernels.copy_pad(
+            plane,
+            DFTPlaneBytes{src_plane.data, src_plane.stride_bytes},
+            DFTMutablePlaneBytes{pad, state_.planes.pad_stride[plane]},
+            kernel_context
+          );
         }
 
         state_.kernels.process_temporal(
           thread_id,
           plane,
-          pad0.data(),
-          dst_plane.data,
-          dst_plane.stride_bytes,
+          DFTPlaneBytes{pad0.data(), state_.planes.pad_stride[plane]},
+          DFTMutablePlaneBytes{dst_plane.data, dst_plane.stride_bytes},
           pos,
-          &state_
+          kernel_context
         );
       } else if (state_.planes.process[plane] == 2) {
         engine::copy_plane_rows(src0_plane, dst_plane);

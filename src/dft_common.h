@@ -34,12 +34,41 @@
 
 #define EXTRA(a,b) (((a) % (b)) ? ((b) - ((a) % (b))) : 0)
 
+struct DFTKernelContext;
 struct DFTTestData;
 
-using DFTCopyPadFunction = void (*)(int plane, const unsigned char *, int, unsigned char *, const DFTTestData *) noexcept;
-using DFTFilterCoefficientsFunction = void (*)(float *, const float *, const int, const float *, const float *, const float *);
-using DFTProcessSpatialFunction = void (*)(unsigned int thread_id, int plane, const unsigned char *, unsigned char *, int, const DFTTestData *);
-using DFTProcessTemporalFunction = void (*)(unsigned int thread_id, int plane, const unsigned char *, unsigned char *, int, const int, const DFTTestData *);
+struct DFTPlaneBytes {
+    const unsigned char* data {nullptr};
+    int stride_bytes {0};
+};
+
+struct DFTMutablePlaneBytes {
+    unsigned char* data {nullptr};
+    int stride_bytes {0};
+};
+
+struct DFTMutableFloatSpan {
+    float* data {nullptr};
+    int size {0};
+};
+
+struct DFTConstFloatSpan {
+    const float* data {nullptr};
+    int size {0};
+};
+
+struct DFTFilterInput {
+    DFTMutableFloatSpan coefficients;
+    DFTConstFloatSpan sigmas;
+    DFTConstFloatSpan pmins;
+    DFTConstFloatSpan pmaxs;
+    DFTConstFloatSpan sigmas2;
+};
+
+using DFTCopyPadFunction = void (*)(int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const DFTKernelContext& context) noexcept;
+using DFTFilterCoefficientsFunction = void (*)(DFTFilterInput input);
+using DFTProcessSpatialFunction = void (*)(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const DFTKernelContext& context);
+using DFTProcessTemporalFunction = void (*)(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, int temporal_position, const DFTKernelContext& context);
 
 struct DFTFftState {
     neo_dfttest::fft::Backend* backend {nullptr};
@@ -138,6 +167,18 @@ struct DFTKernelDispatch {
     DFTProcessTemporalFunction process_temporal {nullptr};
 };
 
+struct DFTKernelContext {
+    const DFTFftState& fft;
+    const DFTClipFormat& format;
+    const DFTBlockSettings& block;
+    const DFTPlaneGeometry& planes;
+    const DFTSampleScale& sample;
+    const DFTDerivedGeometry& derived;
+    const DFTCoefficientTables& coefficients;
+    DFTThreadScratch& scratch;
+    DFTFilterCoefficientsFunction filter_coefficients {nullptr};
+};
+
 struct DFTTestData {
     DFTFftState fft;
     DFTClipFormat format;
@@ -150,13 +191,53 @@ struct DFTTestData {
     DFTKernelDispatch kernels;
 };
 
+inline DFTKernelContext make_kernel_context(const DFTTestData& state) noexcept {
+    return DFTKernelContext{
+        state.fft,
+        state.format,
+        state.block,
+        state.planes,
+        state.sample,
+        state.derived,
+        state.coefficients,
+        state.scratch,
+        state.kernels.filter_coefficients
+    };
+}
+
+inline float* complex_float_data(neo_dfttest::fft::Complex* data) noexcept {
+    return reinterpret_cast<float*>(data);
+}
+
+inline const float* complex_float_data(const neo_dfttest::fft::Complex* data) noexcept {
+    return reinterpret_cast<const float*>(data);
+}
+
+inline DFTFilterInput make_filter_input(
+    neo_dfttest::fft::Complex* coefficients,
+    const DFTKernelContext& context
+) noexcept {
+    const float* pmins = context.derived.custom_f0_beta
+        ? &context.block.f0_beta
+        : context.coefficients.pmins.data();
+    const int pmins_size = context.derived.custom_f0_beta ? 1 : context.derived.coefficient_count;
+
+    return DFTFilterInput{
+        DFTMutableFloatSpan{complex_float_data(coefficients), context.derived.coefficient_count},
+        DFTConstFloatSpan{context.coefficients.sigmas.data(), context.derived.coefficient_count},
+        DFTConstFloatSpan{pmins, pmins_size},
+        DFTConstFloatSpan{context.coefficients.pmaxs.data(), context.derived.coefficient_count},
+        DFTConstFloatSpan{context.coefficients.sigmas2.data(), context.derived.coefficient_count}
+    };
+}
+
 struct NPInfo {
     int fn, b, y, x;
 };
 
-DFTKernelDispatch selectFunctions(const unsigned ftype, const unsigned opt, const DFTTestData& d) noexcept;
-void createWindow(float * VS_RESTRICT hw, const int tmode, const int smode, const DFTTestData * d) noexcept;
-float * parseSigmaLocation(const std::vector<float> s, int & poscnt, const float sigma, const float pfact);
+DFTKernelDispatch selectFunctions(const unsigned ftype, const unsigned opt, const DFTClipFormat& format, const DFTBlockSettings& block) noexcept;
+void createWindow(DFTMutableFloatSpan window, const int tmode, const int smode, const DFTBlockSettings& block, const DFTDerivedGeometry& derived) noexcept;
+std::vector<float> parseSigmaLocation(const std::vector<float>& s, const float sigma, const float pfact);
 float interp(const float pf, const float * pv, const int cnt) noexcept;
 float getSVal(const int pos, const int len, const float * pv, const int cnt, float & pf) noexcept;
 void removeMean_c(float * VS_RESTRICT dftc, const float * dftgc, const int ccnt, float * VS_RESTRICT dftc2) noexcept;
