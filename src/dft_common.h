@@ -403,19 +403,66 @@ inline const float* complex_float_data(const neo_dfttest::fft::Complex* data) no
 
 inline DFTFilterInput make_filter_input(
     neo_dfttest::fft::Complex* coefficients,
-    const DFTKernelContext& context
+    const DFTFilterPlan filter_plan,
+    const DFTBlockSettings& block,
+    const DFTDerivedGeometry& derived,
+    DFTCoefficientView coefficient_tables
 ) noexcept {
-    const float* pmins = context.filter_plan.custom_f0_beta
-        ? &context.block.f0_beta
-        : context.coefficients.pmins.data;
-    const int pmins_size = context.filter_plan.custom_f0_beta ? 1 : context.derived.coefficient_count;
+    const float* pmins = filter_plan.custom_f0_beta
+        ? &block.f0_beta
+        : coefficient_tables.pmins.data;
+    const int pmins_size = filter_plan.custom_f0_beta ? 1 : derived.coefficient_count;
 
     return DFTFilterInput{
-        DFTMutableFloatSpan{complex_float_data(coefficients), context.derived.coefficient_count},
-        DFTConstFloatSpan{context.coefficients.sigmas.data, context.derived.coefficient_count},
+        DFTMutableFloatSpan{complex_float_data(coefficients), derived.coefficient_count},
+        DFTConstFloatSpan{coefficient_tables.sigmas.data, derived.coefficient_count},
         DFTConstFloatSpan{pmins, pmins_size},
-        DFTConstFloatSpan{context.coefficients.pmaxs.data, context.derived.coefficient_count},
-        DFTConstFloatSpan{context.coefficients.sigmas2.data, context.derived.coefficient_count}
+        DFTConstFloatSpan{coefficient_tables.pmaxs.data, derived.coefficient_count},
+        DFTConstFloatSpan{coefficient_tables.sigmas2.data, derived.coefficient_count}
+    };
+}
+
+inline DFTFilterInput make_filter_input(
+    neo_dfttest::fft::Complex* coefficients,
+    const DFTKernelContext& context
+) noexcept {
+    return make_filter_input(
+        coefficients,
+        context.filter_plan,
+        context.block,
+        context.derived,
+        context.coefficients
+    );
+}
+
+struct DFTFilterBatchOperation {
+    DFTFilterPlan plan;
+    DFTMutableComplexBatchView coefficients;
+    const DFTBlockSettings* block {nullptr};
+    const DFTDerivedGeometry* derived {nullptr};
+    DFTCoefficientView coefficient_tables;
+
+    [[nodiscard]] DFTFilterInput input(const int index) const noexcept {
+        return make_filter_input(
+            coefficients.block(index),
+            plan,
+            *block,
+            *derived,
+            coefficient_tables
+        );
+    }
+};
+
+inline DFTFilterBatchOperation dft_filter_batch_operation(
+    DFTMutableComplexBatchView coefficients,
+    const DFTKernelContext& context
+) noexcept {
+    return DFTFilterBatchOperation{
+        context.filter_plan,
+        coefficients,
+        &context.block,
+        &context.derived,
+        context.coefficients
     };
 }
 

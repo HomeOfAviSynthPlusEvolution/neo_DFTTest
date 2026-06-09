@@ -247,6 +247,10 @@ static void filter_coefficients_scalar(const DFTFilterPlan filter_plan, DFTFilte
     filter_scalar<0>(input);
 }
 
+static void apply_filter_scalar(const DFTFilterBatchOperation& operation, const int index) noexcept {
+    filter_coefficients_scalar(operation.plan, operation.input(index));
+}
+
 template<typename T>
 void cast(const float * ebp, T * VS_RESTRICT dstp, const int dstWidth, const int dstHeight, const int dstStride, const int ebpStride,
                  const float multiplier, const int peak) noexcept;
@@ -355,6 +359,7 @@ void process_spatial_scalar(unsigned int thread_id, int plane, DFTPlaneBytes src
             );
         },
         [&](neo_dfttest::DFTCompletedBatch ready) {
+            const auto filter_operation = dft_filter_batch_operation(ready.coefficients, context);
             for (int index = 0; index < ready.batch.count; ++index) {
                 auto* dftc = ready.coefficients.block(index);
                 auto* dftc2 = ready.removed_mean.block(index);
@@ -365,7 +370,7 @@ void process_spatial_scalar(unsigned int thread_id, int plane, DFTPlaneBytes src
                         DFTMutableFloatSpan{complex_float_data(dftc2), context.derived.coefficient_count}
                     );
 
-                filter_coefficients_scalar(context.filter_plan, make_filter_input(dftc, context));
+                apply_filter_scalar(filter_operation, index);
 
                 if (context.block.zero_mean)
                     add_mean(
@@ -437,6 +442,7 @@ void process_temporal_scalar(unsigned int thread_id, int plane, DFTPlaneBytes sr
                 );
         },
         [&](neo_dfttest::DFTCompletedBatch ready) {
+            const auto filter_operation = dft_filter_batch_operation(ready.coefficients, context);
             for (int index = 0; index < ready.batch.count; ++index) {
                 auto* dftc = ready.coefficients.block(index);
                 auto* dftc2 = ready.removed_mean.block(index);
@@ -447,7 +453,7 @@ void process_temporal_scalar(unsigned int thread_id, int plane, DFTPlaneBytes sr
                         DFTMutableFloatSpan{complex_float_data(dftc2), context.derived.coefficient_count}
                     );
 
-                filter_coefficients_scalar(context.filter_plan, make_filter_input(dftc, context));
+                apply_filter_scalar(filter_operation, index);
 
                 if (context.block.zero_mean)
                     add_mean(

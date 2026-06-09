@@ -355,6 +355,9 @@ static void FilterCoefficientsHighway(DFTFilterPlan filter_plan, DFTFilterInput 
     FilterHighway<0>(input);
 }
 
+static void ApplyFilterHighway(const DFTFilterBatchOperation& operation, const int index) {
+    FilterCoefficientsHighway(operation.plan, operation.input(index));
+}
 
 // Implements spatial processing using Highway
 template<typename T>
@@ -381,13 +384,14 @@ void ProcessSpatialHighway(unsigned int thread_id, int plane, DFTPlaneBytes src,
             LoadWindowedBlock(srcp + y * srcStride + x, context.coefficients.window.data, dftr, srcStride, context.block.spatial_size, context.sample.divisor);
         },
         [&](neo_dfttest::DFTCompletedBatch ready) {
+            const auto filter_operation = dft_filter_batch_operation(ready.coefficients, context);
             for (int index = 0; index < ready.batch.count; ++index) {
                 auto* dftc = ready.coefficients.block(index);
                 auto* dftc2 = ready.removed_mean.block(index);
                 if (context.block.zero_mean)
                     RemoveMeanHighway(complex_float_data(dftc), complex_float_data(context.coefficients.window_dft.data), context.derived.coefficient_count, complex_float_data(dftc2));
 
-                FilterCoefficientsHighway(context.filter_plan, make_filter_input(dftc, context));
+                ApplyFilterHighway(filter_operation, index);
 
                 if (context.block.zero_mean)
                     AddMeanHighway(complex_float_data(dftc), context.derived.coefficient_count, complex_float_data(dftc2));
@@ -458,13 +462,14 @@ void ProcessTemporalHighway(unsigned int thread_id, int plane, DFTPlaneBytes src
                 LoadWindowedBlock(srcp[z] + y * srcStride + x, context.coefficients.window.data + context.derived.block_area * z, dftr + context.derived.block_area * z, srcStride, context.block.spatial_size, context.sample.divisor);
         },
         [&](neo_dfttest::DFTCompletedBatch ready) {
+            const auto filter_operation = dft_filter_batch_operation(ready.coefficients, context);
             for (int index = 0; index < ready.batch.count; ++index) {
                 auto* dftc = ready.coefficients.block(index);
                 auto* dftc2 = ready.removed_mean.block(index);
                 if (context.block.zero_mean)
                     RemoveMeanHighway(complex_float_data(dftc), complex_float_data(context.coefficients.window_dft.data), context.derived.coefficient_count, complex_float_data(dftc2));
 
-                FilterCoefficientsHighway(context.filter_plan, make_filter_input(dftc, context));
+                ApplyFilterHighway(filter_operation, index);
 
                 if (context.block.zero_mean)
                     AddMeanHighway(complex_float_data(dftc), context.derived.coefficient_count, complex_float_data(dftc2));
