@@ -50,6 +50,12 @@ const FftwPlan& fftw_plan(const Plan& plan) noexcept {
   return static_cast<const FftwPlan&>(plan.state());
 }
 
+void validate_batch_capacity(const Plan& plan, int count) {
+  if (count < 0 || count > plan.layout().max_batch) {
+    throw std::runtime_error("FFT batch count exceeds plan capacity");
+  }
+}
+
 class FftwBackend final : public Backend {
 public:
   FftwBackend() = default;
@@ -98,6 +104,7 @@ public:
   Plan make_plan(
     TransformDirection direction,
     TransformShape shape,
+    BatchLayout layout,
     Real* real_workspace,
     Complex* complex_workspace,
     PlanOptions options
@@ -123,10 +130,11 @@ public:
     if (!plan) {
       throw std::runtime_error("failed to create FFTW plan");
     }
-    return Plan(std::make_unique<FftwPlan>(api_, plan));
+    return Plan(std::make_unique<FftwPlan>(api_, plan), layout);
   }
 
-  Completion submit_r2c(const Plan& plan, R2CBatch batch, SubmitOptions) const noexcept override {
+  Completion submit_r2c(const Plan& plan, R2CBatch batch, SubmitOptions) const override {
+    validate_batch_capacity(plan, batch.count);
     const fftwf_plan native_plan = fftw_plan(plan).get();
     auto* in = batch.input.data;
     auto* out = batch.output.data;
@@ -138,7 +146,8 @@ public:
     return Completion::completed();
   }
 
-  Completion submit_c2r(const Plan& plan, C2RBatch batch, SubmitOptions) const noexcept override {
+  Completion submit_c2r(const Plan& plan, C2RBatch batch, SubmitOptions) const override {
+    validate_batch_capacity(plan, batch.count);
     const fftwf_plan native_plan = fftw_plan(plan).get();
     auto* in = batch.input.data;
     auto* out = batch.output.data;

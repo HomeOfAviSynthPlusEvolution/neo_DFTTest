@@ -286,9 +286,17 @@ private:
       state_.derived
     );
 
-    auto dftgr = detail::make_aligned_buffer<float>(state_.derived.block_volume + 7, "dftgr");
+    const int real_stride = dft_scratch_real_stride(state_.derived);
+    const int complex_stride = dft_scratch_complex_stride(state_.derived);
+    const fft::BatchLayout fft_layout{
+      dft_fft_batch_capacity(state_.block, state_.fft.backend->capabilities().max_batch_size),
+      real_stride,
+      complex_stride
+    };
+
+    auto dftgr = detail::make_aligned_buffer<float>(real_stride, "dftgr");
     state_.coefficients.window_dft =
-      detail::make_aligned_buffer<fft::Complex>(state_.derived.complex_count + 7, "dftgc");
+      detail::make_aligned_buffer<fft::Complex>(complex_stride, "dftgc");
 
     {
       ds::HostGlobalLockGuard fftw_lock("fftw", host_locks_);
@@ -298,6 +306,7 @@ private:
       state_.fft.forward = state_.fft.backend->make_plan(
         fft::TransformDirection::r2c,
         shape,
+        fft_layout,
         dftgr.data(),
         state_.coefficients.window_dft.data(),
         fft::kPatientDestroyInputPlanOptions
@@ -305,6 +314,7 @@ private:
       state_.fft.inverse = state_.fft.backend->make_plan(
         fft::TransformDirection::c2r,
         shape,
+        fft_layout,
         dftgr.data(),
         state_.coefficients.window_dft.data(),
         fft::kPatientDestroyInputPlanOptions
@@ -327,7 +337,7 @@ private:
 
     state_.fft.backend->submit_r2c(
       state_.fft.forward,
-      fft::single_r2c_batch(dftgr.data(), state_.coefficients.window_dft.data(), state_.derived.block_volume, state_.derived.complex_count)
+      fft::single_r2c_batch(dftgr.data(), state_.coefficients.window_dft.data(), real_stride, complex_stride)
     ).wait();
     wscale_ = 1.0f / wscale;
   }
@@ -475,8 +485,10 @@ private:
       state_.derived
     );
 
-    auto dftr = detail::make_aligned_buffer<float>(state_.derived.block_volume + 7, "dftr");
-    auto dftgc2 = detail::make_aligned_buffer<fft::Complex>(state_.derived.complex_count + 7, "dftgc2");
+    const int real_stride = dft_scratch_real_stride(state_.derived);
+    const int complex_stride = dft_scratch_complex_stride(state_.derived);
+    auto dftr = detail::make_aligned_buffer<float>(real_stride, "dftr");
+    auto dftgc2 = detail::make_aligned_buffer<fft::Complex>(complex_stride, "dftgc2");
 
     float wscale2 = 0.0f;
     int w = 0;
@@ -491,11 +503,11 @@ private:
     wscale2 = 1.0f / wscale2;
     state_.fft.backend->submit_r2c(
       state_.fft.forward,
-      fft::single_r2c_batch(dftr.data(), dftgc2.data(), state_.derived.block_volume, state_.derived.complex_count)
+      fft::single_r2c_batch(dftr.data(), dftgc2.data(), real_stride, complex_stride)
     ).wait();
 
-    auto dftc = detail::make_aligned_buffer<fft::Complex>(state_.derived.complex_count + 7, "dftc");
-    auto dftc2 = detail::make_aligned_buffer<fft::Complex>(state_.derived.complex_count + 7, "dftc2");
+    auto dftc = detail::make_aligned_buffer<fft::Complex>(complex_stride, "dftc");
+    auto dftc2 = detail::make_aligned_buffer<fft::Complex>(complex_stride, "dftc2");
 
     for (const NPInfo& point : noise_points_) {
       for (int z = 0; z < state_.block.temporal_size; z++) {
@@ -536,7 +548,7 @@ private:
 
       state_.fft.backend->submit_r2c(
         state_.fft.forward,
-        fft::single_r2c_batch(dftr.data(), dftc.data(), state_.derived.block_volume, state_.derived.complex_count)
+        fft::single_r2c_batch(dftr.data(), dftc.data(), real_stride, complex_stride)
       ).wait();
 
       if (state_.block.zero_mean) {

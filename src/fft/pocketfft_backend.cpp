@@ -92,6 +92,12 @@ const PocketfftPlan& pocketfft_plan(const Plan& plan) noexcept {
   return static_cast<const PocketfftPlan&>(plan.state());
 }
 
+void validate_batch_capacity(const Plan& plan, int count) {
+  if (count < 0 || count > plan.layout().max_batch) {
+    throw std::runtime_error("FFT batch count exceeds plan capacity");
+  }
+}
+
 class PocketfftBackend final : public Backend {
 public:
   void load() override {
@@ -127,14 +133,16 @@ public:
   Plan make_plan(
     TransformDirection direction,
     TransformShape shape,
+    BatchLayout layout,
     Real*,
     Complex*,
     PlanOptions
   ) override {
-    return Plan(std::make_unique<PocketfftPlan>(direction, shape));
+    return Plan(std::make_unique<PocketfftPlan>(direction, shape), layout);
   }
 
   Completion submit_r2c(const Plan& plan, R2CBatch batch, SubmitOptions) const override {
+    validate_batch_capacity(plan, batch.count);
     const auto& native = pocketfft_plan(plan);
     if (native.direction() != TransformDirection::r2c) {
       throw std::runtime_error("pocketfft r2c submitted with a non-r2c plan");
@@ -161,6 +169,7 @@ public:
   }
 
   Completion submit_c2r(const Plan& plan, C2RBatch batch, SubmitOptions) const override {
+    validate_batch_capacity(plan, batch.count);
     const auto& native = pocketfft_plan(plan);
     if (native.direction() != TransformDirection::c2r) {
       throw std::runtime_error("pocketfft c2r submitted with a non-c2r plan");

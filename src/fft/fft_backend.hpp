@@ -34,6 +34,12 @@ struct PlanOptions {
 
 constexpr PlanOptions kPatientDestroyInputPlanOptions {};
 
+struct BatchLayout {
+  int max_batch {1};
+  std::ptrdiff_t real_stride_elements {0};
+  std::ptrdiff_t complex_stride_elements {0};
+};
+
 enum class MemoryDomain {
   host,
   device,
@@ -126,8 +132,8 @@ public:
   };
 
   Plan() = default;
-  explicit Plan(std::unique_ptr<State> state) noexcept
-    : state_(std::move(state)) {}
+  Plan(std::unique_ptr<State> state, BatchLayout layout) noexcept
+    : state_(std::move(state)), layout_(layout) {}
 
   Plan(const Plan&) = delete;
   Plan& operator=(const Plan&) = delete;
@@ -142,8 +148,13 @@ public:
     return *state_;
   }
 
+  [[nodiscard]] BatchLayout layout() const noexcept {
+    return layout_;
+  }
+
 private:
   std::unique_ptr<State> state_;
+  BatchLayout layout_;
 };
 
 class Backend {
@@ -161,6 +172,7 @@ public:
   virtual Plan make_plan(
     TransformDirection direction,
     TransformShape shape,
+    BatchLayout layout,
     Real* real_workspace,
     Complex* complex_workspace,
     PlanOptions options = {}
