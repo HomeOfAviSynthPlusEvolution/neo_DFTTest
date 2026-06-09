@@ -330,6 +330,48 @@ inline void dither<uint8_t>(const float * ebp, uint8_t * VS_RESTRICT dstp, const
     }
 }
 
+static inline void accumulate_inverse_block_scalar(
+    const float* inverse,
+    const float* window,
+    float* output,
+    const DFTKernelContext& context,
+    const int output_stride
+) noexcept {
+    if (context.derived.transform_type & 1) {
+        accumulate_overlap(inverse, window, output, context.block.spatial_size, output_stride);
+        return;
+    }
+
+    const int center_index = context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center;
+    output[context.derived.spatial_center * output_stride + context.derived.spatial_center] =
+        inverse[center_index] * window[center_index];
+}
+
+template<typename T>
+static void write_output_scalar(
+    neo_dfttest::DFTThreadWorkspaceView workspace,
+    DFTMutablePlaneBytes dst,
+    const int plane,
+    const int padded_width,
+    const int padded_height,
+    const DFTKernelContext& context
+) noexcept {
+    const int dstWidth = context.planes.width[plane];
+    const int dstHeight = context.planes.height[plane];
+    const auto destination = dft_mutable_sample_plane<T>(dst);
+    T* dstp = destination.data;
+    const int dstStride = destination.stride_elements;
+    const int ebpStride = context.planes.e_stride[plane];
+    const float* ebp = workspace.accumulation
+        + ebpStride * ((padded_height - dstHeight) / 2)
+        + (padded_width - dstWidth) / 2;
+
+    if (context.block.dither_mode > 0)
+        dither(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, context.sample.multiplier, context.sample.peak, context.block.dither_mode, workspace.dither_rng, workspace.dither_buffer);
+    else
+        cast(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, context.sample.multiplier, context.sample.peak);
+}
+
 template<typename T>
 void process_spatial_scalar(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const DFTKernelContext& context) {
     const auto workspace = neo_dfttest::dft_thread_workspace(context, thread_id);
@@ -385,24 +427,12 @@ void process_spatial_scalar(unsigned int thread_id, int plane, DFTPlaneBytes src
             for (int index = 0; index < ready.batch.count; ++index) {
                 float* dftr = ready.real.block(index);
                 const int block_x = dft_block_job(ready.batch, index).x;
-                if (context.derived.transform_type & 1) // spatial overlapping
-                    accumulate_overlap(dftr, context.coefficients.window.data, output_row + block_x, context.block.spatial_size, ebpStride);
-                else
-                    output_row[block_x + context.derived.spatial_center * ebpStride + context.derived.spatial_center] = dftr[context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center] * context.coefficients.window.data[context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center];
+                accumulate_inverse_block_scalar(dftr, context.coefficients.window.data, output_row + block_x, context, ebpStride);
             }
         }
     );
 
-    int dstWidth = context.planes.width[plane];
-    int dstHeight = context.planes.height[plane];
-    const auto destination = dft_mutable_sample_plane<T>(dst);
-    int dstStride = destination.stride_elements;
-    T * dstp = destination.data;
-    const float * ebp = ebuff + ebpStride * ((height - dstHeight) / 2) + (width - dstWidth) / 2;
-    if (context.block.dither_mode > 0)
-        dither(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, context.sample.multiplier, context.sample.peak, context.block.dither_mode, workspace.dither_rng, workspace.dither_buffer);
-    else
-        cast(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, context.sample.multiplier, context.sample.peak);
+    write_output_scalar<T>(workspace, dst, plane, width, height, context);
 }
 
 template<typename T>
@@ -467,24 +497,19 @@ void process_temporal_scalar(unsigned int thread_id, int plane, DFTPlaneBytes sr
             for (int index = 0; index < ready.batch.count; ++index) {
                 float* dftr = ready.real.block(index);
                 const int block_x = dft_block_job(ready.batch, index).x;
-                if (context.derived.transform_type & 1) // spatial overlapping
-                    accumulate_overlap(dftr + pos * context.derived.block_area, context.coefficients.window.data + pos * context.derived.block_area, ebuff + ready.y * ebpStride + block_x, context.block.spatial_size, ebpStride);
-                else
-                    ebuff[(ready.y + context.derived.spatial_center) * ebpStride + block_x + context.derived.spatial_center] = dftr[pos * context.derived.block_area + context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center] * context.coefficients.window.data[pos * context.derived.block_area + context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center];
+                const int temporal_offset = pos * context.derived.block_area;
+                accumulate_inverse_block_scalar(
+                    dftr + temporal_offset,
+                    context.coefficients.window.data + temporal_offset,
+                    ebuff + ready.y * ebpStride + block_x,
+                    context,
+                    ebpStride
+                );
             }
         }
     );
 
-    int dstWidth = context.planes.width[plane];
-    int dstHeight = context.planes.height[plane];
-    const auto destination = dft_mutable_sample_plane<T>(dst);
-    int dstStride = destination.stride_elements;
-    T * dstp = destination.data;
-    const float * ebp = ebuff + ebpStride * ((height - dstHeight) / 2) + (width - dstWidth) / 2;
-    if (context.block.dither_mode > 0)
-        dither(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, context.sample.multiplier, context.sample.peak, context.block.dither_mode, workspace.dither_rng, workspace.dither_buffer);
-    else
-        cast(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, context.sample.multiplier, context.sample.peak);
+    write_output_scalar<T>(workspace, dst, plane, width, height, context);
 }
 
 template<typename T>
