@@ -300,7 +300,10 @@ private:
       }
     }
 
-    state_.fft.backend->execute_r2c(state_.fft.forward, dftgr.data(), state_.coefficients.window_dft.data());
+    state_.fft.backend->submit_r2c(
+      state_.fft.forward,
+      fft::single_r2c_batch(dftgr.data(), state_.coefficients.window_dft.data(), state_.derived.block_volume, state_.derived.complex_count)
+    ).wait();
     wscale_ = 1.0f / wscale;
   }
 
@@ -461,7 +464,10 @@ private:
       }
     }
     wscale2 = 1.0f / wscale2;
-    state_.fft.backend->execute_r2c(state_.fft.forward, dftr.data(), dftgc2.data());
+    state_.fft.backend->submit_r2c(
+      state_.fft.forward,
+      fft::single_r2c_batch(dftr.data(), dftgc2.data(), state_.derived.block_volume, state_.derived.complex_count)
+    ).wait();
 
     auto dftc = detail::make_aligned_buffer<fft::Complex>(state_.derived.complex_count + 7, "dftc");
     auto dftc2 = detail::make_aligned_buffer<fft::Complex>(state_.derived.complex_count + 7, "dftc2");
@@ -503,7 +509,10 @@ private:
         }
       }
 
-      state_.fft.backend->execute_r2c(state_.fft.forward, dftr.data(), dftc.data());
+      state_.fft.backend->submit_r2c(
+        state_.fft.forward,
+        fft::single_r2c_batch(dftr.data(), dftc.data(), state_.derived.block_volume, state_.derived.complex_count)
+      ).wait();
 
       if (state_.block.zero_mean) {
         remove_mean_scalar(

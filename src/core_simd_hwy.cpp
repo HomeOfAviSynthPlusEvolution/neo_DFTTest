@@ -354,7 +354,10 @@ void ProcessSpatialHighway(unsigned int thread_id, int plane, DFTPlaneBytes src,
             for (int x = 0; x <= width - context.block.spatial_size; x += context.derived.step) {
                 LoadWindowedBlock(srcp + x, context.coefficients.window.data(), dftr, srcStride, context.block.spatial_size, context.sample.divisor);
 
-                context.fft.backend->execute_r2c(context.fft.forward, dftr, dftc);
+                context.fft.backend->submit_r2c(
+                    context.fft.forward,
+                    neo_dfttest::fft::single_r2c_batch(dftr, dftc, context.derived.block_volume, context.derived.complex_count)
+                ).wait();
                 if (context.block.zero_mean)
                     RemoveMeanHighway(complex_float_data(dftc), complex_float_data(context.coefficients.window_dft.data()), context.derived.coefficient_count, complex_float_data(dftc2));
 
@@ -362,7 +365,10 @@ void ProcessSpatialHighway(unsigned int thread_id, int plane, DFTPlaneBytes src,
 
                 if (context.block.zero_mean)
                     AddMeanHighway(complex_float_data(dftc), context.derived.coefficient_count, complex_float_data(dftc2));
-                context.fft.backend->execute_c2r(context.fft.inverse, dftc, dftr);
+                context.fft.backend->submit_c2r(
+                    context.fft.inverse,
+                    neo_dfttest::fft::single_c2r_batch(dftc, dftr, context.derived.complex_count, context.derived.block_volume)
+                ).wait();
 
                 if (context.derived.transform_type & 1) { // spatial overlapping
                     using D_f = hn::ScalableTag<float>;
@@ -429,7 +435,10 @@ void ProcessTemporalHighway(unsigned int thread_id, int plane, DFTPlaneBytes src
                 for (int z = 0; z < context.block.temporal_size; z++)
                     LoadWindowedBlock(srcp[z] + x, context.coefficients.window.data() + context.derived.block_area * z, dftr + context.derived.block_area * z, srcStride, context.block.spatial_size, context.sample.divisor);
 
-                context.fft.backend->execute_r2c(context.fft.forward, dftr, dftc);
+                context.fft.backend->submit_r2c(
+                    context.fft.forward,
+                    neo_dfttest::fft::single_r2c_batch(dftr, dftc, context.derived.block_volume, context.derived.complex_count)
+                ).wait();
                 if (context.block.zero_mean)
                     RemoveMeanHighway(complex_float_data(dftc), complex_float_data(context.coefficients.window_dft.data()), context.derived.coefficient_count, complex_float_data(dftc2));
 
@@ -437,7 +446,10 @@ void ProcessTemporalHighway(unsigned int thread_id, int plane, DFTPlaneBytes src
 
                 if (context.block.zero_mean)
                     AddMeanHighway(complex_float_data(dftc), context.derived.coefficient_count, complex_float_data(dftc2));
-                context.fft.backend->execute_c2r(context.fft.inverse, dftc, dftr);
+                context.fft.backend->submit_c2r(
+                    context.fft.inverse,
+                    neo_dfttest::fft::single_c2r_batch(dftc, dftr, context.derived.complex_count, context.derived.block_volume)
+                ).wait();
 
                 if (context.derived.transform_type & 1) { // spatial overlapping
                     using D_f = hn::ScalableTag<float>;

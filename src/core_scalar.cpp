@@ -323,7 +323,10 @@ void process_spatial_scalar(unsigned int thread_id, int plane, DFTPlaneBytes src
                 context.sample.divisor
             );
 
-            context.fft.backend->execute_r2c(context.fft.forward, dftr, dftc);
+            context.fft.backend->submit_r2c(
+                context.fft.forward,
+                neo_dfttest::fft::single_r2c_batch(dftr, dftc, context.derived.block_volume, context.derived.complex_count)
+            ).wait();
             if (context.block.zero_mean)
                 remove_mean(
                     DFTMutableFloatSpan{complex_float_data(dftc), context.derived.coefficient_count},
@@ -338,7 +341,10 @@ void process_spatial_scalar(unsigned int thread_id, int plane, DFTPlaneBytes src
                     DFTMutableFloatSpan{complex_float_data(dftc), context.derived.coefficient_count},
                     DFTConstFloatSpan{complex_float_data(dftc2), context.derived.coefficient_count}
                 );
-            context.fft.backend->execute_c2r(context.fft.inverse, dftc, dftr);
+            context.fft.backend->submit_c2r(
+                context.fft.inverse,
+                neo_dfttest::fft::single_c2r_batch(dftc, dftr, context.derived.complex_count, context.derived.block_volume)
+            ).wait();
 
             if (context.derived.transform_type & 1) // spatial overlapping
                 accumulate_overlap(dftr, context.coefficients.window.data(), ebpSaved + x, context.block.spatial_size, ebpStride);
@@ -390,7 +396,10 @@ void process_temporal_scalar(unsigned int thread_id, int plane, DFTPlaneBytes sr
                     context.sample.divisor
                 );
 
-            context.fft.backend->execute_r2c(context.fft.forward, dftr, dftc);
+            context.fft.backend->submit_r2c(
+                context.fft.forward,
+                neo_dfttest::fft::single_r2c_batch(dftr, dftc, context.derived.block_volume, context.derived.complex_count)
+            ).wait();
             if (context.block.zero_mean)
                 remove_mean(
                     DFTMutableFloatSpan{complex_float_data(dftc), context.derived.coefficient_count},
@@ -405,7 +414,10 @@ void process_temporal_scalar(unsigned int thread_id, int plane, DFTPlaneBytes sr
                     DFTMutableFloatSpan{complex_float_data(dftc), context.derived.coefficient_count},
                     DFTConstFloatSpan{complex_float_data(dftc2), context.derived.coefficient_count}
                 );
-            context.fft.backend->execute_c2r(context.fft.inverse, dftc, dftr);
+            context.fft.backend->submit_c2r(
+                context.fft.inverse,
+                neo_dfttest::fft::single_c2r_batch(dftc, dftr, context.derived.complex_count, context.derived.block_volume)
+            ).wait();
 
             if (context.derived.transform_type & 1) // spatial overlapping
                 accumulate_overlap(dftr + pos * context.derived.block_area, context.coefficients.window.data() + pos * context.derived.block_area, ebuff + y * ebpStride + x, context.block.spatial_size, ebpStride);

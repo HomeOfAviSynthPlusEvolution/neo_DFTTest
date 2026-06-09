@@ -1,5 +1,6 @@
 #include "fft/fft_backend.hpp"
 
+#include <limits>
 #include <stdexcept>
 
 namespace neo_dfttest::fft {
@@ -40,6 +41,16 @@ public:
     api_.fftwf_plan_with_nthreads(nthreads);
   }
 
+  BackendCapabilities capabilities() const noexcept override {
+    return BackendCapabilities{
+      true,
+      false,
+      false,
+      1,
+      std::numeric_limits<int>::max(),
+    };
+  }
+
   Plan plan_r2c_2d(int n0, int n1, Real* in, Complex* out, unsigned flags) override {
     return api_.fftwf_plan_dft_r2c_2d(n0, n1, in, out, flags);
   }
@@ -56,12 +67,26 @@ public:
     return api_.fftwf_plan_dft_c2r_3d(n0, n1, n2, in, out, flags);
   }
 
-  void execute_r2c(Plan plan, Real* in, Complex* out) const noexcept override {
-    api_.fftwf_execute_dft_r2c(plan, in, out);
+  Completion submit_r2c(Plan plan, R2CBatch batch, SubmitOptions) const noexcept override {
+    auto* in = batch.input.data;
+    auto* out = batch.output.data;
+    for (int index = 0; index < batch.count; ++index) {
+      api_.fftwf_execute_dft_r2c(plan, in, out);
+      in += batch.input.stride_elements;
+      out += batch.output.stride_elements;
+    }
+    return Completion::completed();
   }
 
-  void execute_c2r(Plan plan, Complex* in, Real* out) const noexcept override {
-    api_.fftwf_execute_dft_c2r(plan, in, out);
+  Completion submit_c2r(Plan plan, C2RBatch batch, SubmitOptions) const noexcept override {
+    auto* in = batch.input.data;
+    auto* out = batch.output.data;
+    for (int index = 0; index < batch.count; ++index) {
+      api_.fftwf_execute_dft_c2r(plan, in, out);
+      in += batch.input.stride_elements;
+      out += batch.output.stride_elements;
+    }
+    return Completion::completed();
   }
 
   void destroy_plan(Plan plan) noexcept override {
