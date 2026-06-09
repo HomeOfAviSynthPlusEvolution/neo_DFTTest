@@ -120,6 +120,7 @@ public:
     }
     config_.validate(input, state_);
     config_.configure_planes(values, state_);
+    executor_ = create_cpu_dft_executor(static_cast<unsigned>(config_.opt), state_.format);
     configure_batch_policy();
 
     state_.kernels = selectFunctions(
@@ -128,7 +129,6 @@ public:
       state_.format,
       state_.block
     );
-    executor_ = create_cpu_dft_executor(static_cast<unsigned>(config_.opt), state_.format);
 
     if (state_.format.integer) {
       state_.sample.multiplier = static_cast<float>(1 << (state_.format.bits_per_sample - 8));
@@ -280,7 +280,7 @@ private:
   }
 
   void configure_batch_policy() {
-    state_.batch_policy = make_cpu_dft_batch_policy(state_.block, state_.fft.backend->capabilities());
+    state_.batch_policy = executor_->make_batch_policy(state_.block, state_.fft.backend->capabilities());
   }
 
   void create_fft_plans() {
@@ -600,19 +600,19 @@ private:
           "pad0"
         );
         const DFTMutablePlaneBytes padded_plane{pad.data(), state_.planes.pad_stride[plane]};
-        executor_->copy_pad(
+        executor_->copy_pad(DftCopyPadRequest{
           plane,
           DFTPlaneBytes{src_plane.data, src_plane.stride_bytes},
           padded_plane,
           kernel_context
-        );
-        executor_->process_spatial(
+        });
+        executor_->process_spatial(DftProcessSpatialRequest{
           thread_id,
           plane,
           DFTPlaneBytes{padded_plane.data, padded_plane.stride_bytes},
           DFTMutablePlaneBytes{dst_plane.data, dst_plane.stride_bytes},
           kernel_context
-        );
+        });
       } else if (state_.planes.process[plane] == 2) {
         engine::copy_plane_rows(src_plane, dst_plane);
       }
@@ -649,22 +649,22 @@ private:
 
           const auto src_plane = engine::read_plane(src_frame.value().frame, plane, state_);
           auto* pad = pad0.data() + state_.planes.pad_block_size[plane] * i;
-          executor_->copy_pad(
+          executor_->copy_pad(DftCopyPadRequest{
             plane,
             DFTPlaneBytes{src_plane.data, src_plane.stride_bytes},
             DFTMutablePlaneBytes{pad, state_.planes.pad_stride[plane]},
             kernel_context
-          );
+          });
         }
 
-        executor_->process_temporal(
+        executor_->process_temporal(DftProcessTemporalRequest{
           thread_id,
           plane,
           DFTPlaneBytes{pad0.data(), state_.planes.pad_stride[plane]},
           DFTMutablePlaneBytes{dst_plane.data, dst_plane.stride_bytes},
           pos,
           kernel_context
-        );
+        });
       } else if (state_.planes.process[plane] == 2) {
         engine::copy_plane_rows(src0_plane, dst_plane);
       }

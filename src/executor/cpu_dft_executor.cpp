@@ -13,43 +13,54 @@ public:
       process_spatial_(dispatch.process_spatial),
       process_temporal_(dispatch.process_temporal) {}
 
-  void copy_pad(
-    int plane,
-    DFTPlaneBytes src,
-    DFTMutablePlaneBytes dst,
-    const DFTKernelContext& context
-  ) override {
+  [[nodiscard]] DftExecutorCapabilities capabilities() const noexcept override {
+    return DftExecutorCapabilities{
+      fft::MemoryDomain::host,
+      false,
+      false,
+      true
+    };
+  }
+
+  [[nodiscard]] DFTBatchPolicy make_batch_policy(
+    const DFTBlockSettings& block,
+    const fft::BackendCapabilities& fft_capabilities
+  ) const noexcept override {
+    return make_cpu_dft_batch_policy(block, fft_capabilities);
+  }
+
+  void copy_pad(DftCopyPadRequest request) override {
     if (!copy_pad_) {
       throw std::runtime_error("CPU DFT executor has no copy-pad processor");
     }
-    copy_pad_(plane, src, dst, context);
+    copy_pad_(request.plane, request.source, request.destination, request.context);
   }
 
-  void process_spatial(
-    unsigned int thread_id,
-    int plane,
-    DFTPlaneBytes src,
-    DFTMutablePlaneBytes dst,
-    const DFTKernelContext& context
-  ) override {
+  void process_spatial(DftProcessSpatialRequest request) override {
     if (!process_spatial_) {
       throw std::runtime_error("CPU DFT executor has no spatial processor");
     }
-    process_spatial_(thread_id, plane, src, dst, context);
+    process_spatial_(
+      request.thread_id,
+      request.plane,
+      request.source,
+      request.destination,
+      request.context
+    );
   }
 
-  void process_temporal(
-    unsigned int thread_id,
-    int plane,
-    DFTPlaneBytes src,
-    DFTMutablePlaneBytes dst,
-    int temporal_position,
-    const DFTKernelContext& context
-  ) override {
+  void process_temporal(DftProcessTemporalRequest request) override {
     if (!process_temporal_) {
       throw std::runtime_error("CPU DFT executor has no temporal processor");
     }
-    process_temporal_(thread_id, plane, src, dst, temporal_position, context);
+    process_temporal_(
+      request.thread_id,
+      request.plane,
+      request.source,
+      request.destination,
+      request.temporal_position,
+      request.context
+    );
   }
 
 private:

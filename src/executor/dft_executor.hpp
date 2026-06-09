@@ -6,33 +6,50 @@
 
 namespace neo_dfttest {
 
+struct DftExecutorCapabilities {
+  fft::MemoryDomain working_memory_domain {fft::MemoryDomain::host};
+  bool supports_device_coefficients {false};
+  bool supports_asynchronous_batches {false};
+  bool supports_host_copy_pad {true};
+};
+
+struct DftCopyPadRequest {
+  int plane {0};
+  DFTPlaneBytes source;
+  DFTMutablePlaneBytes destination;
+  const DFTKernelContext& context;
+};
+
+struct DftProcessSpatialRequest {
+  unsigned int thread_id {0};
+  int plane {0};
+  DFTPlaneBytes source;
+  DFTMutablePlaneBytes destination;
+  const DFTKernelContext& context;
+};
+
+struct DftProcessTemporalRequest {
+  unsigned int thread_id {0};
+  int plane {0};
+  DFTPlaneBytes source;
+  DFTMutablePlaneBytes destination;
+  int temporal_position {0};
+  const DFTKernelContext& context;
+};
+
 class DftExecutor {
 public:
   virtual ~DftExecutor() = default;
 
-  virtual void copy_pad(
-    int plane,
-    DFTPlaneBytes src,
-    DFTMutablePlaneBytes dst,
-    const DFTKernelContext& context
-  ) = 0;
+  [[nodiscard]] virtual DftExecutorCapabilities capabilities() const noexcept = 0;
+  [[nodiscard]] virtual DFTBatchPolicy make_batch_policy(
+    const DFTBlockSettings& block,
+    const fft::BackendCapabilities& fft_capabilities
+  ) const noexcept = 0;
 
-  virtual void process_spatial(
-    unsigned int thread_id,
-    int plane,
-    DFTPlaneBytes src,
-    DFTMutablePlaneBytes dst,
-    const DFTKernelContext& context
-  ) = 0;
-
-  virtual void process_temporal(
-    unsigned int thread_id,
-    int plane,
-    DFTPlaneBytes src,
-    DFTMutablePlaneBytes dst,
-    int temporal_position,
-    const DFTKernelContext& context
-  ) = 0;
+  virtual void copy_pad(DftCopyPadRequest request) = 0;
+  virtual void process_spatial(DftProcessSpatialRequest request) = 0;
+  virtual void process_temporal(DftProcessTemporalRequest request) = 0;
 };
 
 std::unique_ptr<DftExecutor> create_cpu_dft_executor(unsigned opt, DFTClipFormat format);
