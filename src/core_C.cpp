@@ -251,109 +251,109 @@ inline void dither<uint8_t>(const float * ebp, uint8_t * VS_RESTRICT dstp, const
 
 template<typename T>
 void func_0_c(unsigned int thread_id, int plane, const unsigned char * src_ptr, unsigned char * dst_ptr, int dst_stride_bytes, const DFTTestData * d) noexcept {
-    float * ebuff = d->ebuff[thread_id];
-    float * dftr = d->dftr[thread_id];
-    fftwf_complex * dftc = d->dftc[thread_id];
-    fftwf_complex * dftc2 = d->dftc2[thread_id];
+    float * ebuff = d->scratch.ebuff[thread_id];
+    float * dftr = d->scratch.dftr[thread_id];
+    fftwf_complex * dftc = d->scratch.dftc[thread_id];
+    fftwf_complex * dftc2 = d->scratch.dftc2[thread_id];
 
-    const int width = d->padWidth[plane];
-    const int height = d->padHeight[plane];
-    const int eheight = d->eHeight[plane];
-    const int srcStride = d->padStride[plane] / sizeof(T);
-    const int ebpStride = d->eStride[plane];
+    const int width = d->planes.pad_width[plane];
+    const int height = d->planes.pad_height[plane];
+    const int eheight = d->planes.e_height[plane];
+    const int srcStride = d->planes.pad_stride[plane] / sizeof(T);
+    const int ebpStride = d->planes.e_stride[plane];
     const T * srcp = reinterpret_cast<const T *>(src_ptr);
     float * ebpSaved = ebuff;
 
     memset(ebuff, 0, ebpStride * height * sizeof(float));
 
-    for (int y = 0; y < eheight; y += d->inc) {
-        for (int x = 0; x <= width - d->sbsize; x += d->inc) {
-            proc0(srcp + x, d->hw, dftr, srcStride, d->sbsize, d->divisor);
+    for (int y = 0; y < eheight; y += d->derived.step) {
+        for (int x = 0; x <= width - d->block.spatial_size; x += d->derived.step) {
+            proc0(srcp + x, d->coefficients.window, dftr, srcStride, d->block.spatial_size, d->sample.divisor);
 
-            d->fft->fftwf_execute_dft_r2c(d->ft, dftr, dftc);
-            if (d->zmean)
-                removeMean(reinterpret_cast<float *>(dftc), reinterpret_cast<const float *>(d->dftgc), d->ccnt2, reinterpret_cast<float *>(dftc2));
+            d->fft.api->fftwf_execute_dft_r2c(d->fft.forward, dftr, dftc);
+            if (d->block.zero_mean)
+                removeMean(reinterpret_cast<float *>(dftc), reinterpret_cast<const float *>(d->coefficients.window_dft), d->derived.coefficient_count, reinterpret_cast<float *>(dftc2));
 
-            d->filterCoeffs(reinterpret_cast<float *>(dftc), d->sigmas, d->ccnt2, d->uf0b ? &d->f0beta : d->pmins, d->pmaxs, d->sigmas2);
+            d->kernels.filter_coefficients(reinterpret_cast<float *>(dftc), d->coefficients.sigmas, d->derived.coefficient_count, d->derived.custom_f0_beta ? &d->block.f0_beta : d->coefficients.pmins, d->coefficients.pmaxs, d->coefficients.sigmas2);
 
-            if (d->zmean)
-                addMean(reinterpret_cast<float *>(dftc), d->ccnt2, reinterpret_cast<const float *>(dftc2));
-            d->fft->fftwf_execute_dft_c2r(d->fti, dftc, dftr);
+            if (d->block.zero_mean)
+                addMean(reinterpret_cast<float *>(dftc), d->derived.coefficient_count, reinterpret_cast<const float *>(dftc2));
+            d->fft.api->fftwf_execute_dft_c2r(d->fft.inverse, dftc, dftr);
 
-            if (d->type & 1) // spatial overlapping
-                proc1(dftr, d->hw, ebpSaved + x, d->sbsize, ebpStride);
+            if (d->derived.transform_type & 1) // spatial overlapping
+                proc1(dftr, d->coefficients.window, ebpSaved + x, d->block.spatial_size, ebpStride);
             else
-                ebpSaved[x + d->sbd1 * ebpStride + d->sbd1] = dftr[d->sbd1 * d->sbsize + d->sbd1] * d->hw[d->sbd1 * d->sbsize + d->sbd1];
+                ebpSaved[x + d->derived.spatial_center * ebpStride + d->derived.spatial_center] = dftr[d->derived.spatial_center * d->block.spatial_size + d->derived.spatial_center] * d->coefficients.window[d->derived.spatial_center * d->block.spatial_size + d->derived.spatial_center];
         }
 
-        srcp += srcStride * d->inc;
-        ebpSaved += ebpStride * d->inc;
+        srcp += srcStride * d->derived.step;
+        ebpSaved += ebpStride * d->derived.step;
     }
 
-    int dstWidth = d->planeWidth[plane];
-    int dstHeight = d->planeHeight[plane];
+    int dstWidth = d->planes.width[plane];
+    int dstHeight = d->planes.height[plane];
     int dstStride = dst_stride_bytes / sizeof(T);
     T * dstp = reinterpret_cast<T *>(dst_ptr);
     const float * ebp = ebuff + ebpStride * ((height - dstHeight) / 2) + (width - dstWidth) / 2;
-    if (d->dither > 0)
-        dither(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, d->multiplier, d->peak, d->dither, *d->rngs[thread_id], d->d_buffs[thread_id]);
+    if (d->block.dither_mode > 0)
+        dither(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, d->sample.multiplier, d->sample.peak, d->block.dither_mode, *d->scratch.rngs[thread_id], d->scratch.dither_buffers[thread_id]);
     else
-        cast(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, d->multiplier, d->peak);
+        cast(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, d->sample.multiplier, d->sample.peak);
 }
 
 template<typename T>
 void func_1_c(unsigned int thread_id, int plane, const unsigned char * src_ptr, unsigned char * dst_ptr, int dst_stride_bytes, const int pos, const DFTTestData * d) noexcept {
-    float * ebuff = d->ebuff[thread_id];
-    float * dftr = d->dftr[thread_id];
-    fftwf_complex * dftc = d->dftc[thread_id];
-    fftwf_complex * dftc2 = d->dftc2[thread_id];
+    float * ebuff = d->scratch.ebuff[thread_id];
+    float * dftr = d->scratch.dftr[thread_id];
+    fftwf_complex * dftc = d->scratch.dftc[thread_id];
+    fftwf_complex * dftc2 = d->scratch.dftc2[thread_id];
 
-    const int width = d->padWidth[plane];
-    const int height = d->padHeight[plane];
-    const int eheight = d->eHeight[plane];
-    const int srcStride = d->padStride[plane] / sizeof(T);
-    const int ebpStride = d->eStride[plane];
+    const int width = d->planes.pad_width[plane];
+    const int height = d->planes.pad_height[plane];
+    const int eheight = d->planes.e_height[plane];
+    const int srcStride = d->planes.pad_stride[plane] / sizeof(T);
+    const int ebpStride = d->planes.e_stride[plane];
 
     const T * srcp[15] = {};
-    for (int i = 0; i < d->tbsize; i++)
-        srcp[i] = reinterpret_cast<const T *>(src_ptr + d->padBlockSize[plane] * i);
+    for (int i = 0; i < d->block.temporal_size; i++)
+        srcp[i] = reinterpret_cast<const T *>(src_ptr + d->planes.pad_block_size[plane] * i);
 
     memset(ebuff, 0, ebpStride * height * sizeof(float));
 
-    for (int y = 0; y < eheight; y += d->inc) {
-        for (int x = 0; x <= width - d->sbsize; x += d->inc) {
-            for (int z = 0; z < d->tbsize; z++)
-                proc0(srcp[z] + x, d->hw + d->barea * z, dftr + d->barea * z, srcStride, d->sbsize, d->divisor);
+    for (int y = 0; y < eheight; y += d->derived.step) {
+        for (int x = 0; x <= width - d->block.spatial_size; x += d->derived.step) {
+            for (int z = 0; z < d->block.temporal_size; z++)
+                proc0(srcp[z] + x, d->coefficients.window + d->derived.block_area * z, dftr + d->derived.block_area * z, srcStride, d->block.spatial_size, d->sample.divisor);
 
-            d->fft->fftwf_execute_dft_r2c(d->ft, dftr, dftc);
-            if (d->zmean)
-                removeMean(reinterpret_cast<float *>(dftc), reinterpret_cast<const float *>(d->dftgc), d->ccnt2, reinterpret_cast<float *>(dftc2));
+            d->fft.api->fftwf_execute_dft_r2c(d->fft.forward, dftr, dftc);
+            if (d->block.zero_mean)
+                removeMean(reinterpret_cast<float *>(dftc), reinterpret_cast<const float *>(d->coefficients.window_dft), d->derived.coefficient_count, reinterpret_cast<float *>(dftc2));
 
-            d->filterCoeffs(reinterpret_cast<float *>(dftc), d->sigmas, d->ccnt2, d->uf0b ? &d->f0beta : d->pmins, d->pmaxs, d->sigmas2);
+            d->kernels.filter_coefficients(reinterpret_cast<float *>(dftc), d->coefficients.sigmas, d->derived.coefficient_count, d->derived.custom_f0_beta ? &d->block.f0_beta : d->coefficients.pmins, d->coefficients.pmaxs, d->coefficients.sigmas2);
 
-            if (d->zmean)
-                addMean(reinterpret_cast<float *>(dftc), d->ccnt2, reinterpret_cast<const float *>(dftc2));
-            d->fft->fftwf_execute_dft_c2r(d->fti, dftc, dftr);
+            if (d->block.zero_mean)
+                addMean(reinterpret_cast<float *>(dftc), d->derived.coefficient_count, reinterpret_cast<const float *>(dftc2));
+            d->fft.api->fftwf_execute_dft_c2r(d->fft.inverse, dftc, dftr);
 
-            if (d->type & 1) // spatial overlapping
-                proc1(dftr + pos * d->barea, d->hw + pos * d->barea, ebuff + y * ebpStride + x, d->sbsize, ebpStride);
+            if (d->derived.transform_type & 1) // spatial overlapping
+                proc1(dftr + pos * d->derived.block_area, d->coefficients.window + pos * d->derived.block_area, ebuff + y * ebpStride + x, d->block.spatial_size, ebpStride);
             else
-                ebuff[(y + d->sbd1) * ebpStride + x + d->sbd1] = dftr[pos * d->barea + d->sbd1 * d->sbsize + d->sbd1] * d->hw[pos * d->barea + d->sbd1 * d->sbsize + d->sbd1];
+                ebuff[(y + d->derived.spatial_center) * ebpStride + x + d->derived.spatial_center] = dftr[pos * d->derived.block_area + d->derived.spatial_center * d->block.spatial_size + d->derived.spatial_center] * d->coefficients.window[pos * d->derived.block_area + d->derived.spatial_center * d->block.spatial_size + d->derived.spatial_center];
         }
 
-        for (int q = 0; q < d->tbsize; q++)
-            srcp[q] += srcStride * d->inc;
+        for (int q = 0; q < d->block.temporal_size; q++)
+            srcp[q] += srcStride * d->derived.step;
     }
 
-    int dstWidth = d->planeWidth[plane];
-    int dstHeight = d->planeHeight[plane];
+    int dstWidth = d->planes.width[plane];
+    int dstHeight = d->planes.height[plane];
     int dstStride = dst_stride_bytes / sizeof(T);
     T * dstp = reinterpret_cast<T *>(dst_ptr);
     const float * ebp = ebuff + ebpStride * ((height - dstHeight) / 2) + (width - dstWidth) / 2;
-    if (d->dither > 0)
-        dither(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, d->multiplier, d->peak, d->dither, *d->rngs[thread_id], d->d_buffs[thread_id]);
+    if (d->block.dither_mode > 0)
+        dither(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, d->sample.multiplier, d->sample.peak, d->block.dither_mode, *d->scratch.rngs[thread_id], d->scratch.dither_buffers[thread_id]);
     else
-        cast(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, d->multiplier, d->peak);
+        cast(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, d->sample.multiplier, d->sample.peak);
 }
 
 template<typename T>

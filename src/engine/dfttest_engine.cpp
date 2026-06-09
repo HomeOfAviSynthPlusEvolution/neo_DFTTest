@@ -147,36 +147,36 @@ public:
   Impl& operator=(const Impl&) = delete;
 
   ~Impl() {
-    _aligned_free(ep_.hw);
-    _aligned_free(ep_.dftgc);
-    _aligned_free(ep_.sigmas);
-    _aligned_free(ep_.sigmas2);
-    _aligned_free(ep_.pmins);
-    _aligned_free(ep_.pmaxs);
+    _aligned_free(state_.coefficients.window);
+    _aligned_free(state_.coefficients.window_dft);
+    _aligned_free(state_.coefficients.sigmas);
+    _aligned_free(state_.coefficients.sigmas2);
+    _aligned_free(state_.coefficients.pmins);
+    _aligned_free(state_.coefficients.pmaxs);
 
-    for (auto&& buf : ep_.ebuff) {
+    for (auto&& buf : state_.scratch.ebuff) {
       _aligned_free(buf);
     }
-    for (auto&& buf : ep_.dftr) {
+    for (auto&& buf : state_.scratch.dftr) {
       _aligned_free(buf);
     }
-    for (auto&& buf : ep_.dftc) {
+    for (auto&& buf : state_.scratch.dftc) {
       _aligned_free(buf);
     }
-    for (auto&& buf : ep_.dftc2) {
+    for (auto&& buf : state_.scratch.dftc2) {
       _aligned_free(buf);
     }
-    for (auto&& buf : ep_.d_buffs) {
+    for (auto&& buf : state_.scratch.dither_buffers) {
       _aligned_free(buf);
     }
 
     if (fft_.library) {
       ds::HostGlobalLockGuard lock("fftw", host_locks_);
-      if (ep_.ft) {
-        fft_.fftwf_destroy_plan(ep_.ft);
+      if (state_.fft.forward) {
+        fft_.fftwf_destroy_plan(state_.fft.forward);
       }
-      if (ep_.fti) {
-        fft_.fftwf_destroy_plan(ep_.fti);
+      if (state_.fft.inverse) {
+        fft_.fftwf_destroy_plan(state_.fft.inverse);
       }
       fft_.free();
     }
@@ -193,49 +193,49 @@ public:
     const ds::ParamValues& values = params ? *params : empty_params;
 
     fft_.load();
-    ep_.fft = &fft_;
-    ep_.vi_bitsPerSample = ds::bits_per_sample(input.format.sample_format);
-    ep_.vi_bytesPerSample = ds::bytes_per_sample(input.format.sample_format);
-    ep_.vi_integer = input.format.sample_format != ds::SampleFormat::Float32;
-    ep_.vi_numPlanes = input.format.plane_count;
-    ep_.vi_width = input.width;
-    ep_.vi_height = input.height;
-    ep_.vi_subSamplingH = input.format.subsampling_h;
-    ep_.vi_subSamplingW = input.format.subsampling_w;
+    state_.fft.api = &fft_;
+    state_.format.bits_per_sample = ds::bits_per_sample(input.format.sample_format);
+    state_.format.bytes_per_sample = ds::bytes_per_sample(input.format.sample_format);
+    state_.format.integer = input.format.sample_format != ds::SampleFormat::Float32;
+    state_.format.num_planes = input.format.plane_count;
+    state_.format.width = input.width;
+    state_.format.height = input.height;
+    state_.format.subsampling_h = input.format.subsampling_h;
+    state_.format.subsampling_w = input.format.subsampling_w;
 
     read_parameters(values);
     validate_parameters(input);
     configure_planes(values);
 
 #ifndef ENABLE_PAR
-    ep_.threads = 1;
+    state_.block.worker_threads = 1;
 #endif
 
-    selectFunctions(static_cast<unsigned>(ftype_), static_cast<unsigned>(opt_), &ep_);
+    selectFunctions(static_cast<unsigned>(ftype_), static_cast<unsigned>(opt_), &state_);
 
-    if (ep_.vi_integer) {
-      ep_.multiplier = static_cast<float>(1 << (ep_.vi_bitsPerSample - 8));
-      ep_.divisor = 1.0f / ep_.multiplier;
-      ep_.peak = (1 << ep_.vi_bitsPerSample) - 1;
+    if (state_.format.integer) {
+      state_.sample.multiplier = static_cast<float>(1 << (state_.format.bits_per_sample - 8));
+      state_.sample.divisor = 1.0f / state_.sample.multiplier;
+      state_.sample.peak = (1 << state_.format.bits_per_sample) - 1;
     }
 
     if (ftype_ != 0) {
-      ep_.f0beta = 1.0f;
+      state_.block.f0_beta = 1.0f;
     }
 
     configure_geometry();
     create_fft_plans();
     initialize_sigma_profile();
     prepare_noise_points();
-    resize_thread_storage(ep_.threads * fft_threads_ * 16);
+    resize_thread_storage(state_.block.worker_threads * fft_threads_ * 16);
   }
 
   void request_frames(ds::VideoRequestContext& context) const {
-    if (ep_.tbsize == 1) {
+    if (state_.block.temporal_size == 1) {
       context.request_frame(0, context.output_frame);
     } else {
-      const int start = std::max(context.output_frame - ep_.tbsize / 2, 0);
-      const int stop = std::min(context.output_frame + ep_.tbsize / 2, input_.num_frames - 1);
+      const int start = std::max(context.output_frame - state_.block.temporal_size / 2, 0);
+      const int stop = std::min(context.output_frame + state_.block.temporal_size / 2, input_.num_frames - 1);
       for (int frame = start; frame <= stop; ++frame) {
         context.request_frame(0, frame);
       }
@@ -246,7 +246,7 @@ public:
     }
 
     for (const NPInfo& point : noise_points_) {
-      for (int z = 0; z < ep_.tbsize; ++z) {
+      for (int z = 0; z < state_.block.temporal_size; ++z) {
         context.request_frame(0, point.fn + z);
       }
     }
@@ -261,7 +261,7 @@ public:
       throw std::runtime_error(current.error().message);
     }
 
-    if (ep_.tbsize == 1) {
+    if (state_.block.temporal_size == 1) {
       process_spatial_frame(slot.id(), current.value().frame, dst);
       return;
     }
@@ -315,28 +315,28 @@ private:
     tmode_ = detail::read_int(values, "tmode", 0);
     opt_ = detail::read_int(values, "opt", 0);
 
-    ep_.sbsize = detail::read_int(values, "sbsize", ep_.sbsize);
-    ep_.sosize = detail::read_int(values, "sosize", ep_.sosize);
-    ep_.tbsize = detail::read_int(values, "tbsize", ep_.tbsize);
-    ep_.tosize = detail::read_int(values, "tosize", ep_.tosize);
-    ep_.swin = detail::read_int(values, "swin", ep_.swin);
-    ep_.twin = detail::read_int(values, "twin", ep_.twin);
-    ep_.sbeta = detail::read_float(values, "sbeta", ep_.sbeta);
-    ep_.tbeta = detail::read_float(values, "tbeta", ep_.tbeta);
-    ep_.zmean = detail::read_bool(values, "zmean", ep_.zmean);
-    ep_.f0beta = detail::read_float(values, "f0beta", ep_.f0beta);
-    ep_.threads = detail::read_int(values, "threads", ep_.threads);
-    ep_.dither = detail::read_int(values, "dither", ep_.dither);
+    state_.block.spatial_size = detail::read_int(values, "sbsize", state_.block.spatial_size);
+    state_.block.spatial_overlap = detail::read_int(values, "sosize", state_.block.spatial_overlap);
+    state_.block.temporal_size = detail::read_int(values, "tbsize", state_.block.temporal_size);
+    state_.block.temporal_overlap = detail::read_int(values, "tosize", state_.block.temporal_overlap);
+    state_.block.spatial_window = detail::read_int(values, "swin", state_.block.spatial_window);
+    state_.block.temporal_window = detail::read_int(values, "twin", state_.block.temporal_window);
+    state_.block.spatial_beta = detail::read_float(values, "sbeta", state_.block.spatial_beta);
+    state_.block.temporal_beta = detail::read_float(values, "tbeta", state_.block.temporal_beta);
+    state_.block.zero_mean = detail::read_bool(values, "zmean", state_.block.zero_mean);
+    state_.block.f0_beta = detail::read_float(values, "f0beta", state_.block.f0_beta);
+    state_.block.worker_threads = detail::read_int(values, "threads", state_.block.worker_threads);
+    state_.block.dither_mode = detail::read_int(values, "dither", state_.block.dither_mode);
     fft_threads_ = detail::read_int(values, "fft_threads", fft_threads_);
     if (fft_threads_ < 1) {
       fft_threads_ = 1;
     }
 
     if (smode_ == 0) {
-      ep_.sosize = 0;
+      state_.block.spatial_overlap = 0;
     }
     if (tmode_ == 0) {
-      ep_.tosize = 0;
+      state_.block.temporal_overlap = 0;
     }
 
     if (fft_threads_ > 1 && fft_.has_threading()) {
@@ -352,36 +352,36 @@ private:
     sst_ = detail::read_float_array(values, "sst");
     ssystem_ = detail::read_int(values, "ssystem", 0);
 
-    if (ep_.threads <= 0) {
-      ep_.threads = 4;
+    if (state_.block.worker_threads <= 0) {
+      state_.block.worker_threads = 4;
     }
-    if (ep_.threads > 16) {
-      ep_.threads = 16;
+    if (state_.block.worker_threads > 16) {
+      state_.block.worker_threads = 16;
     }
   }
 
   void configure_planes(const ds::ParamValues& values) {
-    std::fill(std::begin(ep_.process), std::end(ep_.process), 2);
+    std::fill(std::begin(state_.planes.process), std::end(state_.planes.process), 2);
 
     if (detail::has_param(values, "planes")) {
       const auto planes = detail::read_int_array(values, "planes");
       for (const int plane : planes) {
-        if (plane < 0 || plane >= ep_.vi_numPlanes) {
+        if (plane < 0 || plane >= state_.format.num_planes) {
           throw std::runtime_error("plane index out of range");
         }
-        ep_.process[plane] = 3;
+        state_.planes.process[plane] = 3;
       }
       return;
     }
 
-    ep_.process[0] = 3;
-    ep_.process[1] = 3;
-    ep_.process[2] = 3;
-    ep_.process[3] = 2;
-    ep_.process[0] = detail::read_int(values, "y", ep_.process[0]);
-    ep_.process[1] = detail::read_int(values, "u", ep_.process[1]);
-    ep_.process[2] = detail::read_int(values, "v", ep_.process[2]);
-    ep_.process[3] = detail::read_int(values, "a", ep_.process[3]);
+    state_.planes.process[0] = 3;
+    state_.planes.process[1] = 3;
+    state_.planes.process[2] = 3;
+    state_.planes.process[3] = 2;
+    state_.planes.process[0] = detail::read_int(values, "y", state_.planes.process[0]);
+    state_.planes.process[1] = detail::read_int(values, "u", state_.planes.process[1]);
+    state_.planes.process[2] = detail::read_int(values, "v", state_.planes.process[2]);
+    state_.planes.process[3] = detail::read_int(values, "a", state_.planes.process[3]);
   }
 
   void validate_parameters(const ds::VideoInputInfo& input) const {
@@ -390,8 +390,8 @@ private:
     }
 
     if (
-      (ep_.vi_integer && ep_.vi_bitsPerSample > 16) ||
-      (!ep_.vi_integer && ep_.vi_bitsPerSample != 32)
+      (state_.format.integer && state_.format.bits_per_sample > 16) ||
+      (!state_.format.integer && state_.format.bits_per_sample != 32)
     ) {
       throw std::runtime_error("only 8-16 bit integer and 32 bit float input supported");
     }
@@ -399,47 +399,47 @@ private:
     if (ftype_ < 0 || ftype_ > 4) {
       throw std::runtime_error("ftype must be 0, 1, 2, 3, or 4");
     }
-    if (ep_.sbsize < 1) {
+    if (state_.block.spatial_size < 1) {
       throw std::runtime_error("sbsize must be greater than or equal to 1");
     }
     if (smode_ < 0 || smode_ > 1) {
       throw std::runtime_error("smode must be 0 or 1");
     }
-    if (smode_ == 0 && !(ep_.sbsize & 1)) {
+    if (smode_ == 0 && !(state_.block.spatial_size & 1)) {
       throw std::runtime_error("sbsize must be odd when using smode=0");
     }
-    if (ep_.sosize < 0 || ep_.sosize >= ep_.sbsize) {
+    if (state_.block.spatial_overlap < 0 || state_.block.spatial_overlap >= state_.block.spatial_size) {
       throw std::runtime_error("sosize must be between 0 and sbsize-1 (inclusive)");
     }
-    if (ep_.sosize > ep_.sbsize / 2 && ep_.sbsize % (ep_.sbsize - ep_.sosize) != 0) {
+    if (state_.block.spatial_overlap > state_.block.spatial_size / 2 && state_.block.spatial_size % (state_.block.spatial_size - state_.block.spatial_overlap) != 0) {
       throw std::runtime_error(
         "spatial overlap greater than 50% requires that sbsize-sosize is a divisor of sbsize"
       );
     }
-    if (ep_.tbsize < 1 || ep_.tbsize > 15) {
+    if (state_.block.temporal_size < 1 || state_.block.temporal_size > 15) {
       throw std::runtime_error("tbsize must be between 1 and 15 (inclusive)");
     }
     if (tmode_ != 0) {
       throw std::runtime_error("tmode must be 0. tmode=1 is not implemented");
     }
-    if (tmode_ == 0 && !(ep_.tbsize & 1)) {
+    if (tmode_ == 0 && !(state_.block.temporal_size & 1)) {
       throw std::runtime_error("tbsize must be odd when using tmode=0");
     }
-    if (ep_.tosize < 0 || ep_.tosize >= ep_.tbsize) {
+    if (state_.block.temporal_overlap < 0 || state_.block.temporal_overlap >= state_.block.temporal_size) {
       throw std::runtime_error("tosize must be between 0 and tbsize-1 (inclusive)");
     }
-    if (ep_.tosize > ep_.tbsize / 2 && ep_.tbsize % (ep_.tbsize - ep_.tosize) != 0) {
+    if (state_.block.temporal_overlap > state_.block.temporal_size / 2 && state_.block.temporal_size % (state_.block.temporal_size - state_.block.temporal_overlap) != 0) {
       throw std::runtime_error(
         "temporal overlap greater than 50% requires that tbsize-tosize is a divisor of tbsize"
       );
     }
-    if (ep_.tbsize > input.num_frames) {
+    if (state_.block.temporal_size > input.num_frames) {
       throw std::runtime_error("tbsize must be less than or equal to the number of frames in the clip");
     }
-    if (ep_.swin < 0 || ep_.swin > 11) {
+    if (state_.block.spatial_window < 0 || state_.block.spatial_window > 11) {
       throw std::runtime_error("swin must be between 0 and 11 (inclusive)");
     }
-    if (ep_.twin < 0 || ep_.twin > 11) {
+    if (state_.block.temporal_window < 0 || state_.block.temporal_window > 11) {
       throw std::runtime_error("twin must be between 0 and 11 (inclusive)");
     }
     if (nlocation_.size() & 3U) {
@@ -469,93 +469,93 @@ private:
   }
 
   void configure_geometry() {
-    ep_.barea = ep_.sbsize * ep_.sbsize;
-    ep_.bvolume = ep_.barea * ep_.tbsize;
-    ep_.ccnt = (ep_.sbsize / 2 + 1) * ep_.sbsize * ep_.tbsize;
-    ep_.ccnt2 = ep_.ccnt * 2;
-    ep_.type = tmode_ * 4 + (ep_.tbsize > 1 ? 2 : 0) + smode_;
-    ep_.sbd1 = ep_.sbsize / 2;
-    ep_.uf0b = std::abs(ep_.f0beta - 1.0f) >= 0.00005f;
-    ep_.inc = (ep_.type & 1) ? ep_.sbsize - ep_.sosize : 1;
+    state_.derived.block_area = state_.block.spatial_size * state_.block.spatial_size;
+    state_.derived.block_volume = state_.derived.block_area * state_.block.temporal_size;
+    state_.derived.complex_count = (state_.block.spatial_size / 2 + 1) * state_.block.spatial_size * state_.block.temporal_size;
+    state_.derived.coefficient_count = state_.derived.complex_count * 2;
+    state_.derived.transform_type = tmode_ * 4 + (state_.block.temporal_size > 1 ? 2 : 0) + smode_;
+    state_.derived.spatial_center = state_.block.spatial_size / 2;
+    state_.derived.custom_f0_beta = std::abs(state_.block.f0_beta - 1.0f) >= 0.00005f;
+    state_.derived.step = (state_.derived.transform_type & 1) ? state_.block.spatial_size - state_.block.spatial_overlap : 1;
 
-    for (int plane = 0; plane < ep_.vi_numPlanes; plane++) {
-      const int shift_w = (plane == 1 || plane == 2) ? ep_.vi_subSamplingW : 0;
-      const int shift_h = (plane == 1 || plane == 2) ? ep_.vi_subSamplingH : 0;
-      ep_.planeWidth[plane] = ep_.vi_width >> shift_w;
-      ep_.planeHeight[plane] = ep_.vi_height >> shift_h;
-      const int width = ep_.planeWidth[plane];
-      const int height = ep_.planeHeight[plane];
+    for (int plane = 0; plane < state_.format.num_planes; plane++) {
+      const int shift_w = (plane == 1 || plane == 2) ? state_.format.subsampling_w : 0;
+      const int shift_h = (plane == 1 || plane == 2) ? state_.format.subsampling_h : 0;
+      state_.planes.width[plane] = state_.format.width >> shift_w;
+      state_.planes.height[plane] = state_.format.height >> shift_h;
+      const int width = state_.planes.width[plane];
+      const int height = state_.planes.height[plane];
 
       if (smode_ == 0) {
-        const int ae = (ep_.sbsize >> 1) << 1;
-        ep_.padWidth[plane] = width + ae;
-        ep_.padHeight[plane] = height + ae;
-        ep_.eHeight[plane] = height;
+        const int ae = (state_.block.spatial_size >> 1) << 1;
+        state_.planes.pad_width[plane] = width + ae;
+        state_.planes.pad_height[plane] = height + ae;
+        state_.planes.e_height[plane] = height;
       } else {
-        const int ae = std::max(ep_.sbsize - ep_.sosize, ep_.sosize) * 2;
-        ep_.padWidth[plane] = width + EXTRA(width, ep_.sbsize) + ae;
-        ep_.padHeight[plane] = height + EXTRA(height, ep_.sbsize) + ae;
-        ep_.eHeight[plane] =
-          (ep_.padHeight[plane] - ep_.sosize) / (ep_.sbsize - ep_.sosize) *
-          (ep_.sbsize - ep_.sosize);
+        const int ae = std::max(state_.block.spatial_size - state_.block.spatial_overlap, state_.block.spatial_overlap) * 2;
+        state_.planes.pad_width[plane] = width + EXTRA(width, state_.block.spatial_size) + ae;
+        state_.planes.pad_height[plane] = height + EXTRA(height, state_.block.spatial_size) + ae;
+        state_.planes.e_height[plane] =
+          (state_.planes.pad_height[plane] - state_.block.spatial_overlap) / (state_.block.spatial_size - state_.block.spatial_overlap) *
+          (state_.block.spatial_size - state_.block.spatial_overlap);
       }
 
-      ep_.padStride[plane] =
-        ((ep_.padWidth[plane] * ep_.vi_bytesPerSample - 1) | (FRAME_ALIGN - 1)) + 1;
-      ep_.padBlockSize[plane] = ep_.padStride[plane] * ep_.padHeight[plane];
-      ep_.eStride[plane] = ((ep_.padWidth[plane] * static_cast<int>(sizeof(float)) - 1) | (FRAME_ALIGN - 1)) + 1;
-      ep_.eBatchSize[plane] =
-        ((ep_.eHeight[plane] - 1) / ep_.threads / ep_.inc + 1) * ep_.inc;
+      state_.planes.pad_stride[plane] =
+        ((state_.planes.pad_width[plane] * state_.format.bytes_per_sample - 1) | (FRAME_ALIGN - 1)) + 1;
+      state_.planes.pad_block_size[plane] = state_.planes.pad_stride[plane] * state_.planes.pad_height[plane];
+      state_.planes.e_stride[plane] = ((state_.planes.pad_width[plane] * static_cast<int>(sizeof(float)) - 1) | (FRAME_ALIGN - 1)) + 1;
+      state_.planes.e_batch_size[plane] =
+        ((state_.planes.e_height[plane] - 1) / state_.block.worker_threads / state_.derived.step + 1) * state_.derived.step;
     }
   }
 
   void create_fft_plans() {
-    ep_.hw = static_cast<float*>(_aligned_malloc((ep_.bvolume + 7) * sizeof(float), FRAME_ALIGN));
-    if (!ep_.hw) {
+    state_.coefficients.window = static_cast<float*>(_aligned_malloc((state_.derived.block_volume + 7) * sizeof(float), FRAME_ALIGN));
+    if (!state_.coefficients.window) {
       throw std::runtime_error("malloc failure (hw)");
     }
-    createWindow(ep_.hw, tmode_, smode_, &ep_);
+    createWindow(state_.coefficients.window, tmode_, smode_, &state_);
 
-    float* dftgr = static_cast<float*>(_aligned_malloc((ep_.bvolume + 7) * sizeof(float), FRAME_ALIGN));
+    float* dftgr = static_cast<float*>(_aligned_malloc((state_.derived.block_volume + 7) * sizeof(float), FRAME_ALIGN));
     detail::AlignedPtr<float> dftgr_smart(dftgr);
-    ep_.dftgc = static_cast<fftwf_complex*>(
-      _aligned_malloc((ep_.ccnt + 7) * sizeof(fftwf_complex), FRAME_ALIGN)
+    state_.coefficients.window_dft = static_cast<fftwf_complex*>(
+      _aligned_malloc((state_.derived.complex_count + 7) * sizeof(fftwf_complex), FRAME_ALIGN)
     );
-    if (!dftgr || !ep_.dftgc) {
+    if (!dftgr || !state_.coefficients.window_dft) {
       throw std::runtime_error("malloc failure (dftgr/dftgc)");
     }
 
     {
       ds::HostGlobalLockGuard fftw_lock("fftw", host_locks_);
-      if (ep_.tbsize > 1) {
-        ep_.ft = fft_.fftwf_plan_dft_r2c_3d(
-          ep_.tbsize,
-          ep_.sbsize,
-          ep_.sbsize,
+      if (state_.block.temporal_size > 1) {
+        state_.fft.forward = fft_.fftwf_plan_dft_r2c_3d(
+          state_.block.temporal_size,
+          state_.block.spatial_size,
+          state_.block.spatial_size,
           dftgr,
-          ep_.dftgc,
+          state_.coefficients.window_dft,
           FFTW_PATIENT | FFTW_DESTROY_INPUT
         );
-        ep_.fti = fft_.fftwf_plan_dft_c2r_3d(
-          ep_.tbsize,
-          ep_.sbsize,
-          ep_.sbsize,
-          ep_.dftgc,
+        state_.fft.inverse = fft_.fftwf_plan_dft_c2r_3d(
+          state_.block.temporal_size,
+          state_.block.spatial_size,
+          state_.block.spatial_size,
+          state_.coefficients.window_dft,
           dftgr,
           FFTW_PATIENT | FFTW_DESTROY_INPUT
         );
       } else {
-        ep_.ft = fft_.fftwf_plan_dft_r2c_2d(
-          ep_.sbsize,
-          ep_.sbsize,
+        state_.fft.forward = fft_.fftwf_plan_dft_r2c_2d(
+          state_.block.spatial_size,
+          state_.block.spatial_size,
           dftgr,
-          ep_.dftgc,
+          state_.coefficients.window_dft,
           FFTW_PATIENT | FFTW_DESTROY_INPUT
         );
-        ep_.fti = fft_.fftwf_plan_dft_c2r_2d(
-          ep_.sbsize,
-          ep_.sbsize,
-          ep_.dftgc,
+        state_.fft.inverse = fft_.fftwf_plan_dft_c2r_2d(
+          state_.block.spatial_size,
+          state_.block.spatial_size,
+          state_.coefficients.window_dft,
           dftgr,
           FFTW_PATIENT | FFTW_DESTROY_INPUT
         );
@@ -563,55 +563,55 @@ private:
     }
 
     float wscale = 0.0f;
-    const float* hw_t = ep_.hw;
+    const float* hw_t = state_.coefficients.window;
     float* dftgr_t = dftgr;
-    for (int s = 0; s < ep_.tbsize; s++) {
-      for (int y = 0; y < ep_.sbsize; y++) {
-        for (int x = 0; x < ep_.sbsize; x++) {
+    for (int s = 0; s < state_.block.temporal_size; s++) {
+      for (int y = 0; y < state_.block.spatial_size; y++) {
+        for (int x = 0; x < state_.block.spatial_size; x++) {
           dftgr_t[x] = 255.0f * hw_t[x];
           wscale += hw_t[x] * hw_t[x];
         }
-        hw_t += ep_.sbsize;
-        dftgr_t += ep_.sbsize;
+        hw_t += state_.block.spatial_size;
+        dftgr_t += state_.block.spatial_size;
       }
     }
 
-    fft_.fftwf_execute_dft_r2c(ep_.ft, dftgr, ep_.dftgc);
+    fft_.fftwf_execute_dft_r2c(state_.fft.forward, dftgr, state_.coefficients.window_dft);
     wscale_ = 1.0f / wscale;
   }
 
   void initialize_sigma_profile() {
     const float wscalef = (ftype_ < 2) ? wscale_ : 1.0f;
 
-    ep_.sigmas = static_cast<float*>(_aligned_malloc((ep_.ccnt2 + 7) * sizeof(float), FRAME_ALIGN));
-    ep_.sigmas2 = static_cast<float*>(_aligned_malloc((ep_.ccnt2 + 7) * sizeof(float), FRAME_ALIGN));
-    ep_.pmins = static_cast<float*>(_aligned_malloc((ep_.ccnt2 + 7) * sizeof(float), FRAME_ALIGN));
-    ep_.pmaxs = static_cast<float*>(_aligned_malloc((ep_.ccnt2 + 7) * sizeof(float), FRAME_ALIGN));
-    if (!ep_.sigmas || !ep_.sigmas2 || !ep_.pmins || !ep_.pmaxs) {
+    state_.coefficients.sigmas = static_cast<float*>(_aligned_malloc((state_.derived.coefficient_count + 7) * sizeof(float), FRAME_ALIGN));
+    state_.coefficients.sigmas2 = static_cast<float*>(_aligned_malloc((state_.derived.coefficient_count + 7) * sizeof(float), FRAME_ALIGN));
+    state_.coefficients.pmins = static_cast<float*>(_aligned_malloc((state_.derived.coefficient_count + 7) * sizeof(float), FRAME_ALIGN));
+    state_.coefficients.pmaxs = static_cast<float*>(_aligned_malloc((state_.derived.coefficient_count + 7) * sizeof(float), FRAME_ALIGN));
+    if (!state_.coefficients.sigmas || !state_.coefficients.sigmas2 || !state_.coefficients.pmins || !state_.coefficients.pmaxs) {
       throw std::runtime_error("malloc failure (sigmas/sigmas2/pmins/pmaxs)");
     }
 
     if (!slocation_.empty() || !ssx_.empty() || !ssy_.empty() || !sst_.empty()) {
       initialize_spatially_varying_sigmas(wscalef);
     } else {
-      for (int i = 0; i < ep_.ccnt2; i++) {
-        ep_.sigmas[i] = sigma_ / wscalef;
+      for (int i = 0; i < state_.derived.coefficient_count; i++) {
+        state_.coefficients.sigmas[i] = sigma_ / wscalef;
       }
     }
 
-    for (int i = 0; i < ep_.ccnt2; i++) {
-      ep_.sigmas2[i] = sigma2_ / wscalef;
-      ep_.pmins[i] = pmin_ / wscale_;
-      ep_.pmaxs[i] = pmax_ / wscale_;
+    for (int i = 0; i < state_.derived.coefficient_count; i++) {
+      state_.coefficients.sigmas2[i] = sigma2_ / wscalef;
+      state_.coefficients.pmins[i] = pmin_ / wscale_;
+      state_.coefficients.pmaxs[i] = pmax_ / wscale_;
     }
   }
 
   void initialize_spatially_varying_sigmas(float wscalef) {
     int ndim = 3;
-    if (ep_.tbsize == 1) {
+    if (state_.block.temporal_size == 1) {
       ndim -= 1;
     }
-    if (ep_.sbsize == 1) {
+    if (state_.block.spatial_size == 1) {
       ndim -= 2;
     }
 
@@ -637,17 +637,17 @@ private:
     std::unique_ptr<float[]> sx_smart(sxdata);
     std::unique_ptr<float[]> sy_smart(sydata);
 
-    const int cpx = ep_.sbsize / 2 + 1;
+    const int cpx = state_.block.spatial_size / 2 + 1;
     float pft = 0.0f;
     float pfy = 0.0f;
     float pfx = 0.0f;
 
-    for (int z = 0; z < ep_.tbsize; z++) {
-      const float tval = getSVal(z, ep_.tbsize, tdata, tcnt, pft);
-      for (int y = 0; y < ep_.sbsize; y++) {
-        const float syval = getSVal(y, ep_.sbsize, sydata, sycnt, pfy);
+    for (int z = 0; z < state_.block.temporal_size; z++) {
+      const float tval = getSVal(z, state_.block.temporal_size, tdata, tcnt, pft);
+      for (int y = 0; y < state_.block.spatial_size; y++) {
+        const float syval = getSVal(y, state_.block.spatial_size, sydata, sycnt, pfy);
         for (int x = 0; x < cpx; x++) {
-          const float sxval = getSVal(x, ep_.sbsize, sxdata, sxcnt, pfx);
+          const float sxval = getSVal(x, state_.block.spatial_size, sxdata, sxcnt, pfx);
           float val = 0.0f;
 
           if (ssystem_) {
@@ -657,8 +657,8 @@ private:
             val = tval * syval * sxval;
           }
 
-          const int pos = ((z * ep_.sbsize + y) * cpx + x) * 2;
-          ep_.sigmas[pos] = ep_.sigmas[pos + 1] = val / wscalef;
+          const int pos = ((z * state_.block.spatial_size + y) * cpx + x) * 2;
+          state_.coefficients.sigmas[pos] = state_.coefficients.sigmas[pos + 1] = val / wscalef;
         }
       }
     }
@@ -676,20 +676,20 @@ private:
       const int y = nlocation_[i + 2];
       const int x = nlocation_[i + 3];
 
-      if (fn < 0 || fn > input_.num_frames - ep_.tbsize) {
+      if (fn < 0 || fn > input_.num_frames - state_.block.temporal_size) {
         throw std::runtime_error("invalid frame number in nlocation (" + std::to_string(fn) + ")");
       }
-      if (plane < 0 || plane >= ep_.vi_numPlanes) {
+      if (plane < 0 || plane >= state_.format.num_planes) {
         throw std::runtime_error("invalid plane number in nlocation (" + std::to_string(plane) + ")");
       }
 
-      const int height = ep_.vi_height >> (plane > 0 ? ep_.vi_subSamplingH : 0);
-      if (y < 0 || y > height - ep_.sbsize) {
+      const int height = state_.format.height >> (plane > 0 ? state_.format.subsampling_h : 0);
+      if (y < 0 || y > height - state_.block.spatial_size) {
         throw std::runtime_error("invalid y pos in nlocation (" + std::to_string(y) + ")");
       }
 
-      const int width = ep_.vi_width >> (plane > 0 ? ep_.vi_subSamplingW : 0);
-      if (x < 0 || x > width - ep_.sbsize) {
+      const int width = state_.format.width >> (plane > 0 ? state_.format.subsampling_w : 0);
+      if (x < 0 || x > width - state_.block.spatial_size) {
         throw std::runtime_error("invalid x pos in nlocation (" + std::to_string(x) + ")");
       }
       if (noise_points_.size() >= 500) {
@@ -710,18 +710,18 @@ private:
       return;
     }
 
-    std::memset(ep_.sigmas, 0, static_cast<std::size_t>(ep_.ccnt2) * sizeof(float));
+    std::memset(state_.coefficients.sigmas, 0, static_cast<std::size_t>(state_.derived.coefficient_count) * sizeof(float));
 
-    float* hw2 = static_cast<float*>(_aligned_malloc((ep_.bvolume + 7) * sizeof(float), FRAME_ALIGN));
+    float* hw2 = static_cast<float*>(_aligned_malloc((state_.derived.block_volume + 7) * sizeof(float), FRAME_ALIGN));
     if (!hw2) {
       throw std::runtime_error("malloc failure (hw2)");
     }
     detail::AlignedPtr<float> hw2_smart(hw2);
-    createWindow(hw2, 0, 0, &ep_);
+    createWindow(hw2, 0, 0, &state_);
 
-    float* dftr = static_cast<float*>(_aligned_malloc((ep_.bvolume + 7) * sizeof(float), FRAME_ALIGN));
+    float* dftr = static_cast<float*>(_aligned_malloc((state_.derived.block_volume + 7) * sizeof(float), FRAME_ALIGN));
     auto* dftgc2 = static_cast<fftwf_complex*>(
-      _aligned_malloc((ep_.ccnt + 7) * sizeof(fftwf_complex), FRAME_ALIGN)
+      _aligned_malloc((state_.derived.complex_count + 7) * sizeof(fftwf_complex), FRAME_ALIGN)
     );
     if (!dftr || !dftgc2) {
       throw std::runtime_error("malloc failure (dftr/dftgc2)");
@@ -731,22 +731,22 @@ private:
 
     float wscale2 = 0.0f;
     int w = 0;
-    for (int s = 0; s < ep_.tbsize; s++) {
-      for (int y = 0; y < ep_.sbsize; y++) {
-        for (int x = 0; x < ep_.sbsize; x++, w++) {
+    for (int s = 0; s < state_.block.temporal_size; s++) {
+      for (int y = 0; y < state_.block.spatial_size; y++) {
+        for (int x = 0; x < state_.block.spatial_size; x++, w++) {
           dftr[w] = 255.0f * hw2[w];
           wscale2 += hw2[w] * hw2[w];
         }
       }
     }
     wscale2 = 1.0f / wscale2;
-    fft_.fftwf_execute_dft_r2c(ep_.ft, dftr, dftgc2);
+    fft_.fftwf_execute_dft_r2c(state_.fft.forward, dftr, dftgc2);
 
     auto* dftc = static_cast<fftwf_complex*>(
-      _aligned_malloc((ep_.ccnt + 7) * sizeof(fftwf_complex), FRAME_ALIGN)
+      _aligned_malloc((state_.derived.complex_count + 7) * sizeof(fftwf_complex), FRAME_ALIGN)
     );
     auto* dftc2 = static_cast<fftwf_complex*>(
-      _aligned_malloc((ep_.ccnt + 7) * sizeof(fftwf_complex), FRAME_ALIGN)
+      _aligned_malloc((state_.derived.complex_count + 7) * sizeof(fftwf_complex), FRAME_ALIGN)
     );
     if (!dftc || !dftc2) {
       throw std::runtime_error("malloc failure (dftc/dftc2)");
@@ -755,52 +755,52 @@ private:
     detail::AlignedPtr<fftwf_complex> dftc2_smart(dftc2);
 
     for (const NPInfo& point : noise_points_) {
-      for (int z = 0; z < ep_.tbsize; z++) {
+      for (int z = 0; z < state_.block.temporal_size; z++) {
         auto frame = provider.get(0, point.fn + z);
         if (!frame.has_value()) {
           throw std::runtime_error(frame.error().message);
         }
 
         const ds::PlaneView& plane = frame.value().frame.plane(point.b);
-        const int stride_elements = static_cast<int>(plane.stride_bytes) / ep_.vi_bytesPerSample;
+        const int stride_elements = static_cast<int>(plane.stride_bytes) / state_.format.bytes_per_sample;
 
-        if (ep_.vi_bytesPerSample == 1) {
+        if (state_.format.bytes_per_sample == 1) {
           const auto* srcp =
             static_cast<const std::uint8_t*>(plane.data) + stride_elements * point.y + point.x;
-          proc0_c(srcp, hw2 + ep_.barea * z, dftr + ep_.barea * z, stride_elements, ep_.sbsize, ep_.divisor);
-        } else if (ep_.vi_bytesPerSample == 2) {
+          proc0_c(srcp, hw2 + state_.derived.block_area * z, dftr + state_.derived.block_area * z, stride_elements, state_.block.spatial_size, state_.sample.divisor);
+        } else if (state_.format.bytes_per_sample == 2) {
           const auto* srcp =
             static_cast<const std::uint16_t*>(plane.data) + stride_elements * point.y + point.x;
-          proc0_c(srcp, hw2 + ep_.barea * z, dftr + ep_.barea * z, stride_elements, ep_.sbsize, ep_.divisor);
+          proc0_c(srcp, hw2 + state_.derived.block_area * z, dftr + state_.derived.block_area * z, stride_elements, state_.block.spatial_size, state_.sample.divisor);
         } else {
           const auto* srcp =
             static_cast<const float*>(plane.data) + stride_elements * point.y + point.x;
-          proc0_c(srcp, hw2 + ep_.barea * z, dftr + ep_.barea * z, stride_elements, ep_.sbsize, ep_.divisor);
+          proc0_c(srcp, hw2 + state_.derived.block_area * z, dftr + state_.derived.block_area * z, stride_elements, state_.block.spatial_size, state_.sample.divisor);
         }
       }
 
-      fft_.fftwf_execute_dft_r2c(ep_.ft, dftr, dftc);
+      fft_.fftwf_execute_dft_r2c(state_.fft.forward, dftr, dftc);
 
-      if (ep_.zmean) {
+      if (state_.block.zero_mean) {
         removeMean_c(
           reinterpret_cast<float*>(dftc),
           reinterpret_cast<const float*>(dftgc2),
-          ep_.ccnt2,
+          state_.derived.coefficient_count,
           reinterpret_cast<float*>(dftc2)
         );
       }
 
-      for (int h = 0; h < ep_.ccnt2; h += 2) {
+      for (int h = 0; h < state_.derived.coefficient_count; h += 2) {
         const float* dftc_f = reinterpret_cast<float*>(dftc);
         const float psd = dftc_f[h] * dftc_f[h] + dftc_f[h + 1] * dftc_f[h + 1];
-        ep_.sigmas[h] += psd;
-        ep_.sigmas[h + 1] += psd;
+        state_.coefficients.sigmas[h] += psd;
+        state_.coefficients.sigmas[h + 1] += psd;
       }
     }
 
     const float scale = 1.0f / static_cast<float>(noise_points_.size());
-    for (int h = 0; h < ep_.ccnt2; h++) {
-      ep_.sigmas[h] *= scale * (wscale2 / wscale_) * alpha_;
+    for (int h = 0; h < state_.derived.coefficient_count; h++) {
+      state_.coefficients.sigmas[h] *= scale * (wscale2 / wscale_) * alpha_;
     }
 
     noise_profile_ready_ = true;
@@ -811,9 +811,9 @@ private:
     const ds::VideoFrameView& src,
     ds::MutableVideoFrameView& dst
   ) {
-    for (int plane = 0; plane < ep_.vi_numPlanes; plane++) {
-      const int height = ep_.planeHeight[plane];
-      const int width = ep_.planeWidth[plane];
+    for (int plane = 0; plane < state_.format.num_planes; plane++) {
+      const int height = state_.planes.height[plane];
+      const int width = state_.planes.width[plane];
       const auto& src_plane = src.plane(plane);
       const auto& dst_plane = dst.plane(plane);
       const int src_stride = detail::plane_stride(src_plane);
@@ -821,21 +821,21 @@ private:
       const auto* src_ptr = detail::readable_plane_data(src, plane);
       auto* dst_ptr = detail::writable_plane_data(dst, plane);
 
-      if (ep_.process[plane] == 3) {
-        auto* pad = static_cast<unsigned char*>(_aligned_malloc(ep_.padBlockSize[plane] * ep_.tbsize, FRAME_ALIGN));
+      if (state_.planes.process[plane] == 3) {
+        auto* pad = static_cast<unsigned char*>(_aligned_malloc(state_.planes.pad_block_size[plane] * state_.block.temporal_size, FRAME_ALIGN));
         if (!pad) {
           throw std::runtime_error("pad0 allocation failed.");
         }
         detail::AlignedPtr<unsigned char> pad0_smart(pad);
-        ep_.copyPad(plane, src_ptr, src_stride, pad, &ep_);
-        ep_.func_0(thread_id, plane, pad, dst_ptr, dst_stride, &ep_);
-      } else if (ep_.process[plane] == 2) {
+        state_.kernels.copy_pad(plane, src_ptr, src_stride, pad, &state_);
+        state_.kernels.process_spatial(thread_id, plane, pad, dst_ptr, dst_stride, &state_);
+      } else if (state_.planes.process[plane] == 2) {
         detail::framecpy(
           dst_ptr,
           dst_stride,
           src_ptr,
           src_stride,
-          width * ep_.vi_bytesPerSample,
+          width * state_.format.bytes_per_sample,
           height
         );
       }
@@ -849,11 +849,11 @@ private:
     ds::VideoFrameProvider& provider,
     ds::MutableVideoFrameView& dst
   ) {
-    const int pos = ep_.tbsize / 2;
+    const int pos = state_.block.temporal_size / 2;
 
-    for (int plane = 0; plane < ep_.vi_numPlanes; plane++) {
-      const int height = ep_.planeHeight[plane];
-      const int width = ep_.planeWidth[plane];
+    for (int plane = 0; plane < state_.format.num_planes; plane++) {
+      const int height = state_.planes.height[plane];
+      const int width = state_.planes.width[plane];
       const auto& src0_plane = current.plane(plane);
       const auto& dst_plane = dst.plane(plane);
       const int src0_stride = detail::plane_stride(src0_plane);
@@ -861,14 +861,14 @@ private:
       const auto* src0_ptr = detail::readable_plane_data(current, plane);
       auto* dst_ptr = detail::writable_plane_data(dst, plane);
 
-      if (ep_.process[plane] == 3) {
-        auto* pad0 = static_cast<unsigned char*>(_aligned_malloc(ep_.padBlockSize[plane] * ep_.tbsize, FRAME_ALIGN));
+      if (state_.planes.process[plane] == 3) {
+        auto* pad0 = static_cast<unsigned char*>(_aligned_malloc(state_.planes.pad_block_size[plane] * state_.block.temporal_size, FRAME_ALIGN));
         if (!pad0) {
           throw std::runtime_error("pad0 allocation failed.");
         }
         detail::AlignedPtr<unsigned char> pad0_smart(pad0);
 
-        for (int i = 0; i < ep_.tbsize; i++) {
+        for (int i = 0; i < state_.block.temporal_size; i++) {
           const int fn = i + n - pos;
           const int fn_real = std::min(std::max(fn, 0), input_.num_frames - 1);
           auto src_frame = provider.get(0, fn_real);
@@ -879,18 +879,18 @@ private:
           const auto& src_plane = src_frame.value().frame.plane(plane);
           const int src_stride = detail::plane_stride(src_plane);
           const auto* src_ptr = detail::readable_plane_data(src_frame.value().frame, plane);
-          auto* pad = pad0 + ep_.padBlockSize[plane] * i;
-          ep_.copyPad(plane, src_ptr, src_stride, pad, &ep_);
+          auto* pad = pad0 + state_.planes.pad_block_size[plane] * i;
+          state_.kernels.copy_pad(plane, src_ptr, src_stride, pad, &state_);
         }
 
-        ep_.func_1(thread_id, plane, pad0, dst_ptr, dst_stride, pos, &ep_);
-      } else if (ep_.process[plane] == 2) {
+        state_.kernels.process_temporal(thread_id, plane, pad0, dst_ptr, dst_stride, pos, &state_);
+      } else if (state_.planes.process[plane] == 2) {
         detail::framecpy(
           dst_ptr,
           dst_stride,
           src0_ptr,
           src0_stride,
-          width * ep_.vi_bytesPerSample,
+          width * state_.format.bytes_per_sample,
           height
         );
       }
@@ -922,52 +922,52 @@ private:
 
   void resize_thread_storage_unlocked(int count) {
     thread_id_store_.resize(static_cast<std::size_t>(count), 0);
-    ep_.ebuff.resize(static_cast<std::size_t>(count), nullptr);
-    ep_.dftr.resize(static_cast<std::size_t>(count), nullptr);
-    ep_.dftc.resize(static_cast<std::size_t>(count), nullptr);
-    ep_.dftc2.resize(static_cast<std::size_t>(count), nullptr);
-    ep_.rngs.resize(static_cast<std::size_t>(count));
-    ep_.d_buffs.resize(static_cast<std::size_t>(count), nullptr);
+    state_.scratch.ebuff.resize(static_cast<std::size_t>(count), nullptr);
+    state_.scratch.dftr.resize(static_cast<std::size_t>(count), nullptr);
+    state_.scratch.dftc.resize(static_cast<std::size_t>(count), nullptr);
+    state_.scratch.dftc2.resize(static_cast<std::size_t>(count), nullptr);
+    state_.scratch.rngs.resize(static_cast<std::size_t>(count));
+    state_.scratch.dither_buffers.resize(static_cast<std::size_t>(count), nullptr);
   }
 
   void ensure_thread_buffers_unlocked(unsigned int thread_id) {
-    if (ep_.ebuff[thread_id]) {
+    if (state_.scratch.ebuff[thread_id]) {
       return;
     }
 
-    ep_.ebuff[thread_id] = static_cast<float*>(
-      _aligned_malloc(sizeof(float) * ep_.eStride[0] * ep_.padHeight[0], FRAME_ALIGN)
+    state_.scratch.ebuff[thread_id] = static_cast<float*>(
+      _aligned_malloc(sizeof(float) * state_.planes.e_stride[0] * state_.planes.pad_height[0], FRAME_ALIGN)
     );
-    ep_.dftr[thread_id] = static_cast<float*>(
-      _aligned_malloc(sizeof(float) * (((ep_.bvolume + 7) | 15) + 1) * ep_.threads, FRAME_ALIGN)
+    state_.scratch.dftr[thread_id] = static_cast<float*>(
+      _aligned_malloc(sizeof(float) * (((state_.derived.block_volume + 7) | 15) + 1) * state_.block.worker_threads, FRAME_ALIGN)
     );
-    ep_.dftc[thread_id] = static_cast<fftwf_complex*>(
-      _aligned_malloc(sizeof(fftwf_complex) * (((ep_.ccnt + 7) | 15) + 1) * ep_.threads, FRAME_ALIGN)
+    state_.scratch.dftc[thread_id] = static_cast<fftwf_complex*>(
+      _aligned_malloc(sizeof(fftwf_complex) * (((state_.derived.complex_count + 7) | 15) + 1) * state_.block.worker_threads, FRAME_ALIGN)
     );
-    ep_.dftc2[thread_id] = static_cast<fftwf_complex*>(
-      _aligned_malloc(sizeof(fftwf_complex) * (((ep_.ccnt + 7) | 15) + 1) * ep_.threads, FRAME_ALIGN)
+    state_.scratch.dftc2[thread_id] = static_cast<fftwf_complex*>(
+      _aligned_malloc(sizeof(fftwf_complex) * (((state_.derived.complex_count + 7) | 15) + 1) * state_.block.worker_threads, FRAME_ALIGN)
     );
 
-    if (!ep_.ebuff[thread_id] || !ep_.dftr[thread_id] || !ep_.dftc[thread_id] || !ep_.dftc2[thread_id]) {
+    if (!state_.scratch.ebuff[thread_id] || !state_.scratch.dftr[thread_id] || !state_.scratch.dftc[thread_id] || !state_.scratch.dftc2[thread_id]) {
       throw std::runtime_error("thread buffer allocation failed.");
     }
 
-    if (ep_.dither > 0) {
-      ep_.d_buffs[thread_id] = static_cast<float*>(
-        _aligned_malloc(sizeof(float) * 2 * ep_.vi_width, FRAME_ALIGN)
+    if (state_.block.dither_mode > 0) {
+      state_.scratch.dither_buffers[thread_id] = static_cast<float*>(
+        _aligned_malloc(sizeof(float) * 2 * state_.format.width, FRAME_ALIGN)
       );
-      if (!ep_.d_buffs[thread_id]) {
+      if (!state_.scratch.dither_buffers[thread_id]) {
         throw std::runtime_error("dither buffer allocation failed.");
       }
-      if (ep_.dither > 1) {
-        ep_.rngs[thread_id] = std::make_unique<std::mt19937>(std::random_device{}());
+      if (state_.block.dither_mode > 1) {
+        state_.scratch.rngs[thread_id] = std::make_unique<std::mt19937>(std::random_device{}());
       }
     }
   }
 
   ds::VideoInputInfo input_{};
   ds::HostGlobalLockCallbacks host_locks_{};
-  DFTTestData ep_{};
+  DFTTestData state_{};
   FFTFunctionPointers fft_{};
   int fft_threads_ = 2;
   int ftype_ = 0;

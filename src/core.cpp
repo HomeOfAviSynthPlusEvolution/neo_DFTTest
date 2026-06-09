@@ -2,12 +2,12 @@
 
 template<typename T>
 static void copyPad(int plane, const unsigned char * src_ptr, int src_stride_bytes, unsigned char * dst_ptr, const DFTTestData * d) noexcept {
-    int srcWidth = d->planeWidth[plane];
-    int srcHeight = d->planeHeight[plane];
-    int dstWidth = d->padWidth[plane];
-    int dstHeight = d->padHeight[plane];
-    int dstStrideBytes = d->padStride[plane];
-    int dstStride = d->padStride[plane] / sizeof(T);
+    int srcWidth = d->planes.width[plane];
+    int srcHeight = d->planes.height[plane];
+    int dstWidth = d->planes.pad_width[plane];
+    int dstHeight = d->planes.pad_height[plane];
+    int dstStrideBytes = d->planes.pad_stride[plane];
+    int dstStride = d->planes.pad_stride[plane] / sizeof(T);
 
     const int offy = (dstHeight - srcHeight) / 2;
     const int offx = (dstWidth - srcWidth) / 2;
@@ -118,23 +118,23 @@ static void normalizeForOverlapAdd(double * VS_RESTRICT hw, const int bsize, con
 }
 
 void createWindow(float * VS_RESTRICT hw, const int tmode, const int smode, const DFTTestData * d) noexcept {
-    double * VS_RESTRICT tw = new double[d->tbsize];
-    for (int j = 0; j < d->tbsize; j++)
-        tw[j] = getWinValue(j + 0.5, d->tbsize, d->twin, d->tbeta);
+    double * VS_RESTRICT tw = new double[d->block.temporal_size];
+    for (int j = 0; j < d->block.temporal_size; j++)
+        tw[j] = getWinValue(j + 0.5, d->block.temporal_size, d->block.temporal_window, d->block.temporal_beta);
     if (tmode == 1)
-        normalizeForOverlapAdd(tw, d->tbsize, d->tosize);
+        normalizeForOverlapAdd(tw, d->block.temporal_size, d->block.temporal_overlap);
 
-    double * VS_RESTRICT sw = new double[d->sbsize];
-    for (int j = 0; j < d->sbsize; j++)
-        sw[j] = getWinValue(j + 0.5, d->sbsize, d->swin, d->sbeta);
+    double * VS_RESTRICT sw = new double[d->block.spatial_size];
+    for (int j = 0; j < d->block.spatial_size; j++)
+        sw[j] = getWinValue(j + 0.5, d->block.spatial_size, d->block.spatial_window, d->block.spatial_beta);
     if (smode == 1)
-        normalizeForOverlapAdd(sw, d->sbsize, d->sosize);
+        normalizeForOverlapAdd(sw, d->block.spatial_size, d->block.spatial_overlap);
 
-    const double nscale = 1. / std::sqrt(d->bvolume);
-    for (int j = 0; j < d->tbsize; j++)
-        for (int k = 0; k < d->sbsize; k++)
-            for (int q = 0; q < d->sbsize; q++)
-                hw[(j * d->sbsize + k) * d->sbsize + q] = static_cast<float>(tw[j] * sw[k] * sw[q] * nscale);
+    const double nscale = 1. / std::sqrt(d->derived.block_volume);
+    for (int j = 0; j < d->block.temporal_size; j++)
+        for (int k = 0; k < d->block.spatial_size; k++)
+            for (int q = 0; q < d->block.spatial_size; q++)
+                hw[(j * d->block.spatial_size + k) * d->block.spatial_size + q] = static_cast<float>(tw[j] * sw[k] * sw[q] * nscale);
 
     delete[] tw;
     delete[] sw;
@@ -245,38 +245,38 @@ float getSVal(const int pos, const int len, const float * pv, const int cnt, flo
 
 void selectFunctions(const unsigned ftype, const unsigned opt, DFTTestData * d) noexcept {
     if (ftype == 0) {
-        if (std::abs(d->f0beta - 1.0f) < 0.00005f)
-            d->filterCoeffs = filter_c<0>;
-        else if (std::abs(d->f0beta - 0.5f) < 0.00005f)
-            d->filterCoeffs = filter_c<6>;
+        if (std::abs(d->block.f0_beta - 1.0f) < 0.00005f)
+            d->kernels.filter_coefficients = filter_c<0>;
+        else if (std::abs(d->block.f0_beta - 0.5f) < 0.00005f)
+            d->kernels.filter_coefficients = filter_c<6>;
         else
-            d->filterCoeffs = filter_c<5>;
+            d->kernels.filter_coefficients = filter_c<5>;
     } else if (ftype == 1) {
-        d->filterCoeffs = filter_c<1>;
+        d->kernels.filter_coefficients = filter_c<1>;
     } else if (ftype == 2) {
-        d->filterCoeffs = filter_c<2>;
+        d->kernels.filter_coefficients = filter_c<2>;
     } else if (ftype == 3) {
-        d->filterCoeffs = filter_c<3>;
+        d->kernels.filter_coefficients = filter_c<3>;
     } else {
-        d->filterCoeffs = filter_c<4>;
+        d->kernels.filter_coefficients = filter_c<4>;
     }
 
-    if (d->vi_bytesPerSample == 1) {
-        d->copyPad = copyPad<uint8_t>;
-        d->func_0 = func_0_c<uint8_t>;
-        d->func_1 = func_1_c<uint8_t>;
-    } else if (d->vi_bytesPerSample == 2) {
-        d->copyPad = copyPad<uint16_t>;
-        d->func_0 = func_0_c<uint16_t>;
-        d->func_1 = func_1_c<uint16_t>;
+    if (d->format.bytes_per_sample == 1) {
+        d->kernels.copy_pad = copyPad<uint8_t>;
+        d->kernels.process_spatial = func_0_c<uint8_t>;
+        d->kernels.process_temporal = func_1_c<uint8_t>;
+    } else if (d->format.bytes_per_sample == 2) {
+        d->kernels.copy_pad = copyPad<uint16_t>;
+        d->kernels.process_spatial = func_0_c<uint16_t>;
+        d->kernels.process_temporal = func_1_c<uint16_t>;
     } else {
-        d->copyPad = copyPad<float>;
-        d->func_0 = func_0_c<float>;
-        d->func_1 = func_1_c<float>;
+        d->kernels.copy_pad = copyPad<float>;
+        d->kernels.process_spatial = func_0_c<float>;
+        d->kernels.process_temporal = func_1_c<float>;
     }
 
     if (opt == 0 || opt == 3 || opt == 8) {
-        d->filterCoeffs = neo_dfttest::GetHighwayFilter(ftype, d->f0beta);
+        d->kernels.filter_coefficients = neo_dfttest::GetHighwayFilter(ftype, d->block.f0_beta);
         neo_dfttest::GetHighwayFunc0(d);
         neo_dfttest::GetHighwayFunc1(d);
     }

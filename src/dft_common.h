@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstddef>
 #include <algorithm>
+#include <array>
 #include <memory>
 #include <string>
 #include <vector>
@@ -45,40 +46,110 @@
 
 #define EXTRA(a,b) (((a) % (b)) ? ((b) - ((a) % (b))) : 0)
 
-struct DFTTestData {
-    FFTFunctionPointers* fft;
-    int vi_numPlanes;
-    int vi_bytesPerSample, vi_bitsPerSample;
-    bool vi_integer;
-    int vi_width, vi_height;
-    int vi_subSamplingW, vi_subSamplingH;
-    int sbsize {16}, sosize{12}, tbsize {3}, tosize {0}, swin {0}, twin {7};
-    float sbeta {2.5f}, tbeta {2.5f}, f0beta {1.0f};
-    bool zmean {true};
-    int dither {0};
-    int threads {4};
-    int process[4];
-    int planeWidth[4];
-    int planeHeight[4];
-    float divisor, multiplier;
-    int peak, barea, bvolume, ccnt, type, sbd1, ccnt2, inc;
-    bool uf0b;
-    int padWidth[4], padHeight[4], padStride[4], padBlockSize[4], eStride[4], eHeight[4], eBatchSize[4];
-    float * hw {nullptr}, * sigmas {nullptr}, * sigmas2 {nullptr}, * pmins {nullptr}, * pmaxs {nullptr};
-    fftwf_complex * dftgc {nullptr};
-    fftwf_plan ft {nullptr}, fti {nullptr};
+struct DFTTestData;
 
-    std::vector<float*> d_buffs;
+using DFTCopyPadFunction = void (*)(int plane, const unsigned char *, int, unsigned char *, const DFTTestData *) noexcept;
+using DFTFilterCoefficientsFunction = void (*)(float *, const float *, const int, const float *, const float *, const float *);
+using DFTProcessSpatialFunction = void (*)(unsigned int thread_id, int plane, const unsigned char *, unsigned char *, int, const DFTTestData *);
+using DFTProcessTemporalFunction = void (*)(unsigned int thread_id, int plane, const unsigned char *, unsigned char *, int, const int, const DFTTestData *);
+
+struct DFTFftState {
+    FFTFunctionPointers* api {nullptr};
+    fftwf_plan forward {nullptr};
+    fftwf_plan inverse {nullptr};
+};
+
+struct DFTClipFormat {
+    int num_planes {0};
+    int bytes_per_sample {0};
+    int bits_per_sample {0};
+    bool integer {true};
+    int width {0};
+    int height {0};
+    int subsampling_w {0};
+    int subsampling_h {0};
+};
+
+struct DFTBlockSettings {
+    int spatial_size {16};
+    int spatial_overlap {12};
+    int temporal_size {3};
+    int temporal_overlap {0};
+    int spatial_window {0};
+    int temporal_window {7};
+    float spatial_beta {2.5f};
+    float temporal_beta {2.5f};
+    float f0_beta {1.0f};
+    bool zero_mean {true};
+    int dither_mode {0};
+    int worker_threads {4};
+};
+
+struct DFTPlaneGeometry {
+    std::array<int, 4> process {};
+    std::array<int, 4> width {};
+    std::array<int, 4> height {};
+    std::array<int, 4> pad_width {};
+    std::array<int, 4> pad_height {};
+    std::array<int, 4> pad_stride {};
+    std::array<int, 4> pad_block_size {};
+    std::array<int, 4> e_stride {};
+    std::array<int, 4> e_height {};
+    std::array<int, 4> e_batch_size {};
+};
+
+struct DFTSampleScale {
+    float divisor {1.0f};
+    float multiplier {1.0f};
+    int peak {1};
+};
+
+struct DFTDerivedGeometry {
+    int block_area {0};
+    int block_volume {0};
+    int complex_count {0};
+    int coefficient_count {0};
+    int transform_type {0};
+    int spatial_center {0};
+    int step {1};
+    bool custom_f0_beta {false};
+};
+
+struct DFTCoefficientTables {
+    float* window {nullptr};
+    float* sigmas {nullptr};
+    float* sigmas2 {nullptr};
+    float* pmins {nullptr};
+    float* pmaxs {nullptr};
+    fftwf_complex* window_dft {nullptr};
+};
+
+struct DFTThreadScratch {
+    std::vector<float*> dither_buffers;
     std::vector<std::unique_ptr<std::mt19937>> rngs;
+    std::vector<float*> ebuff;
+    std::vector<float*> dftr;
+    std::vector<fftwf_complex*> dftc;
+    std::vector<fftwf_complex*> dftc2;
+};
 
-    std::vector<float *> ebuff;
-    std::vector<float *> dftr;
-    std::vector<fftwf_complex *> dftc, dftc2;
+struct DFTKernelDispatch {
+    DFTCopyPadFunction copy_pad {nullptr};
+    DFTFilterCoefficientsFunction filter_coefficients {nullptr};
+    DFTProcessSpatialFunction process_spatial {nullptr};
+    DFTProcessTemporalFunction process_temporal {nullptr};
+};
 
-    void (*copyPad)(int plane, const unsigned char *, int, unsigned char *, const DFTTestData *) noexcept;
-    void (*filterCoeffs)(float *, const float *, const int, const float *, const float *, const float *);
-    void (*func_0)(unsigned int thread_id, int plane, const unsigned char *, unsigned char *, int, const DFTTestData *);
-    void (*func_1)(unsigned int thread_id, int plane, const unsigned char *, unsigned char *, int, const int, const DFTTestData *);
+struct DFTTestData {
+    DFTFftState fft;
+    DFTClipFormat format;
+    DFTBlockSettings block;
+    DFTPlaneGeometry planes;
+    DFTSampleScale sample;
+    DFTDerivedGeometry derived;
+    DFTCoefficientTables coefficients;
+    DFTThreadScratch scratch;
+    DFTKernelDispatch kernels;
 };
 
 struct NPInfo {
