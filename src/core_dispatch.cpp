@@ -84,20 +84,22 @@ static DFTFilterCoefficientsFunction select_scalar_filter(const DFTFilterPlan fi
     return filter_scalar<0>;
 }
 
-static DFTKernelDispatch make_scalar_dispatch(const DFTFilterPlan filter_plan, const DFTClipFormat& format) noexcept {
+static DFTKernelDispatch make_scalar_dispatch(const DFTFilterPlan filter_plan) noexcept {
     DFTKernelDispatch kernels {};
     kernels.filter_coefficients = select_scalar_filter(filter_plan);
     kernels.filter_plan = filter_plan;
+    return kernels;
+}
 
+DFTCopyPadFunction select_cpu_copy_pad(const DFTClipFormat& format) noexcept {
     if (format.bytes_per_sample == 1) {
-        kernels.copy_pad = copyPad<uint8_t>;
-    } else if (format.bytes_per_sample == 2) {
-        kernels.copy_pad = copyPad<uint16_t>;
-    } else {
-        kernels.copy_pad = copyPad<float>;
+        return copyPad<uint8_t>;
+    }
+    if (format.bytes_per_sample == 2) {
+        return copyPad<uint16_t>;
     }
 
-    return kernels;
+    return copyPad<float>;
 }
 
 static DFTCpuProcessDispatch make_scalar_process_dispatch(const DFTClipFormat& format) noexcept {
@@ -113,7 +115,7 @@ static DFTCpuProcessDispatch make_scalar_process_dispatch(const DFTClipFormat& f
 
 DFTKernelDispatch selectFunctions(const unsigned ftype, const unsigned opt, const DFTClipFormat& format, const DFTBlockSettings& block) noexcept {
     const DFTFilterPlan filter_plan = make_filter_plan(ftype, block);
-    DFTKernelDispatch kernels = make_scalar_dispatch(filter_plan, format);
+    DFTKernelDispatch kernels = make_scalar_dispatch(filter_plan);
 
     if (opt != 1) {
         DFTKernelDispatch highway = neo_dfttest::make_highway_dispatch(filter_plan, format);

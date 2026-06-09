@@ -8,9 +8,22 @@ namespace neo_dfttest {
 
 class CpuDftExecutor final : public DftExecutor {
 public:
-  explicit CpuDftExecutor(DFTCpuProcessDispatch dispatch) noexcept
-    : process_spatial_(dispatch.process_spatial),
+  CpuDftExecutor(DFTCopyPadFunction copy_pad, DFTCpuProcessDispatch dispatch) noexcept
+    : copy_pad_(copy_pad),
+      process_spatial_(dispatch.process_spatial),
       process_temporal_(dispatch.process_temporal) {}
+
+  void copy_pad(
+    int plane,
+    DFTPlaneBytes src,
+    DFTMutablePlaneBytes dst,
+    const DFTKernelContext& context
+  ) override {
+    if (!copy_pad_) {
+      throw std::runtime_error("CPU DFT executor has no copy-pad processor");
+    }
+    copy_pad_(plane, src, dst, context);
+  }
 
   void process_spatial(
     unsigned int thread_id,
@@ -40,12 +53,16 @@ public:
   }
 
 private:
+  DFTCopyPadFunction copy_pad_ {nullptr};
   DFTProcessSpatialFunction process_spatial_ {nullptr};
   DFTProcessTemporalFunction process_temporal_ {nullptr};
 };
 
 std::unique_ptr<DftExecutor> create_cpu_dft_executor(unsigned opt, DFTClipFormat format) {
-  return std::make_unique<CpuDftExecutor>(select_cpu_process_dispatch(opt, format));
+  return std::make_unique<CpuDftExecutor>(
+    select_cpu_copy_pad(format),
+    select_cpu_process_dispatch(opt, format)
+  );
 }
 
 } // namespace neo_dfttest

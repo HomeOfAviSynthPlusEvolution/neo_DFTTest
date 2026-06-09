@@ -600,7 +600,7 @@ private:
           "pad0"
         );
         const DFTMutablePlaneBytes padded_plane{pad.data(), state_.planes.pad_stride[plane]};
-        state_.kernels.copy_pad(
+        executor_->copy_pad(
           plane,
           DFTPlaneBytes{src_plane.data, src_plane.stride_bytes},
           padded_plane,
@@ -649,7 +649,7 @@ private:
 
           const auto src_plane = engine::read_plane(src_frame.value().frame, plane, state_);
           auto* pad = pad0.data() + state_.planes.pad_block_size[plane] * i;
-          state_.kernels.copy_pad(
+          executor_->copy_pad(
             plane,
             DFTPlaneBytes{src_plane.data, src_plane.stride_bytes},
             DFTMutablePlaneBytes{pad, state_.planes.pad_stride[plane]},

@@ -10,6 +10,13 @@ class DftExecutor {
 public:
   virtual ~DftExecutor() = default;
 
+  virtual void copy_pad(
+    int plane,
+    DFTPlaneBytes src,
+    DFTMutablePlaneBytes dst,
+    const DFTKernelContext& context
+  ) = 0;
+
   virtual void process_spatial(
     unsigned int thread_id,
     int plane,

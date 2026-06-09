@@ -100,7 +100,6 @@ struct DFTFilterPlan {
     bool custom_f0_beta {false};
 };
 
-using DFTCopyPadFunction = void (*)(int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const DFTKernelContext& context) noexcept;
 using DFTFilterCoefficientsFunction = void (*)(DFTFilterInput input);
 
 struct DFTFftState {
@@ -243,7 +242,6 @@ struct DFTThreadScratch {
 };
 
 struct DFTKernelDispatch {
-    DFTCopyPadFunction copy_pad {nullptr};
     DFTFilterCoefficientsFunction filter_coefficients {nullptr};
     DFTFilterPlan filter_plan;
 };
