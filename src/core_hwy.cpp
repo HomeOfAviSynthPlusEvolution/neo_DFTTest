@@ -10,7 +10,6 @@
 #include "dft_common.h" // Contains DFTTestData struct and FFTW types
 #include "core.h" // For removeMean_c and dither_c declarations
 #include <algorithm>
-#include <iostream>
 #include <numeric>
 #include <type_traits> // Required for std::is_same_v
 #include <vector>
@@ -495,25 +494,9 @@ HWY_EXPORT_T(Filter_Type4, Filter<4>);
 HWY_EXPORT_T(Filter_Type5, Filter<5>);
 HWY_EXPORT_T(Filter_Type6, Filter<6>);
 
-// New exports for testing
-HWY_EXPORT_T(Proc0_u8, Proc0<uint8_t>);
-HWY_EXPORT_T(Proc0_u16, Proc0<uint16_t>);
-HWY_EXPORT_T(Proc0_f32, Proc0<float>);
-HWY_EXPORT(Proc1);
-HWY_EXPORT(RemoveMean);
-HWY_EXPORT(AddMean);
-HWY_EXPORT_T(Cast_u8, Cast<uint8_t>);
-HWY_EXPORT_T(Cast_u16, Cast<uint16_t>);
-HWY_EXPORT_T(Cast_f32, Cast<float>);
-
-// These functions will be exposed as non-templated entry points
-// And will call the HWY_DYNAMIC_POINTER to get the right function.
 using FilterFunc = void (*)(DFTFilterInput input);
 
-FilterFunc GetHighwayFilter(int ftype, float f0beta) {
-    int64_t chosen_target = hwy::DispatchedTarget();
-    const char* target_name = hwy::TargetName(chosen_target);
-    std::cout << "Instruction used: " << target_name << std::endl;
+static FilterFunc GetHighwayFilter(unsigned ftype, float f0beta) {
     if (ftype == 0) {
         if (std::abs(f0beta - 1.0f) < 0.00005f) return HWY_DYNAMIC_POINTER(Filter_Type0);
         else if (std::abs(f0beta - 0.5f) < 0.00005f) return HWY_DYNAMIC_POINTER(Filter_Type6);
@@ -524,53 +507,25 @@ FilterFunc GetHighwayFilter(int ftype, float f0beta) {
     else return HWY_DYNAMIC_POINTER(Filter_Type4);
 }
 
-DFTProcessSpatialFunction GetHighwayFunc0(const DFTClipFormat& format) {
+static DFTProcessSpatialFunction GetHighwayFunc0(const DFTClipFormat& format) {
     if (format.bytes_per_sample == 1) return HWY_DYNAMIC_POINTER(Func0_u8);
     if (format.bytes_per_sample == 2) return HWY_DYNAMIC_POINTER(Func0_u16);
     return HWY_DYNAMIC_POINTER(Func0_f32);
 }
 
-DFTProcessTemporalFunction GetHighwayFunc1(const DFTClipFormat& format) {
+static DFTProcessTemporalFunction GetHighwayFunc1(const DFTClipFormat& format) {
     if (format.bytes_per_sample == 1) return HWY_DYNAMIC_POINTER(Func1_u8);
     if (format.bytes_per_sample == 2) return HWY_DYNAMIC_POINTER(Func1_u16);
     return HWY_DYNAMIC_POINTER(Func1_f32);
 }
 
-// Getters for internal testing
-using Proc0Func_u8 = void (*)(const uint8_t*, const float*, float*, int, int, float);
-Proc0Func_u8 GetHighwayProc0_u8() { return HWY_DYNAMIC_POINTER(Proc0_u8); }
-
-using Proc0Func_u16 = void (*)(const uint16_t*, const float*, float*, int, int, float);
-Proc0Func_u16 GetHighwayProc0_u16() { return HWY_DYNAMIC_POINTER(Proc0_u16); }
-
-using Proc0Func_f32 = void (*)(const float*, const float*, float*, int, int, float);
-Proc0Func_f32 GetHighwayProc0_f32() { return HWY_DYNAMIC_POINTER(Proc0_f32); }
-
-using Proc1Func = void (*)(const float*, const float*, float*, int, int);
-Proc1Func GetHighwayProc1() { return HWY_DYNAMIC_POINTER(Proc1); }
-
-using RemoveMeanFunc = void (*)(float*, const float*, int, float*);
-RemoveMeanFunc GetHighwayRemoveMean() { return HWY_DYNAMIC_POINTER(RemoveMean); }
-
-using AddMeanFunc = void (*)(float*, int, const float*);
-AddMeanFunc GetHighwayAddMean() { return HWY_DYNAMIC_POINTER(AddMean); }
-
-using CastFunc_u8 = void (*)(const float *, uint8_t *, int, int, int, int, float, int);
-CastFunc_u8 GetHighwayCast_u8() { return HWY_DYNAMIC_POINTER(Cast_u8); }
-
-using CastFunc_u16 = void (*)(const float *, uint16_t *, int, int, int, int, float, int);
-CastFunc_u16 GetHighwayCast_u16() { return HWY_DYNAMIC_POINTER(Cast_u16); }
-
-using CastFunc_f32 = void (*)(const float *, float *, int, int, int, int, float, int);
-CastFunc_f32 GetHighwayCast_f32() { return HWY_DYNAMIC_POINTER(Cast_f32); }
-
-FilterFunc GetHighwayFilter_Type0() { return HWY_DYNAMIC_POINTER(Filter_Type0); }
-FilterFunc GetHighwayFilter_Type1() { return HWY_DYNAMIC_POINTER(Filter_Type1); }
-FilterFunc GetHighwayFilter_Type2() { return HWY_DYNAMIC_POINTER(Filter_Type2); }
-FilterFunc GetHighwayFilter_Type3() { return HWY_DYNAMIC_POINTER(Filter_Type3); }
-FilterFunc GetHighwayFilter_Type4() { return HWY_DYNAMIC_POINTER(Filter_Type4); }
-FilterFunc GetHighwayFilter_Type5() { return HWY_DYNAMIC_POINTER(Filter_Type5); }
-FilterFunc GetHighwayFilter_Type6() { return HWY_DYNAMIC_POINTER(Filter_Type6); }
+DFTKernelDispatch GetHighwayDispatch(unsigned ftype, const DFTClipFormat& format, const DFTBlockSettings& block) {
+    DFTKernelDispatch kernels {};
+    kernels.filter_coefficients = GetHighwayFilter(ftype, block.f0_beta);
+    kernels.process_spatial = GetHighwayFunc0(format);
+    kernels.process_temporal = GetHighwayFunc1(format);
+    return kernels;
+}
 
 } // namespace neo_dfttest
 

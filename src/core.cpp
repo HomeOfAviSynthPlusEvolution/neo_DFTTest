@@ -239,25 +239,28 @@ float getSVal(const int pos, const int len, const float * pv, const int cnt, flo
     return interp(pf, pv, cnt);
 }
 
-DFTKernelDispatch selectFunctions(const unsigned ftype, const unsigned opt, const DFTClipFormat& format, const DFTBlockSettings& block) noexcept {
-    DFTKernelDispatch kernels {};
-
+static DFTFilterCoefficientsFunction selectCFilter(const unsigned ftype, const DFTBlockSettings& block) noexcept {
     if (ftype == 0) {
         if (std::abs(block.f0_beta - 1.0f) < 0.00005f)
-            kernels.filter_coefficients = filter_c<0>;
+            return filter_c<0>;
         else if (std::abs(block.f0_beta - 0.5f) < 0.00005f)
-            kernels.filter_coefficients = filter_c<6>;
+            return filter_c<6>;
         else
-            kernels.filter_coefficients = filter_c<5>;
+            return filter_c<5>;
     } else if (ftype == 1) {
-        kernels.filter_coefficients = filter_c<1>;
+        return filter_c<1>;
     } else if (ftype == 2) {
-        kernels.filter_coefficients = filter_c<2>;
+        return filter_c<2>;
     } else if (ftype == 3) {
-        kernels.filter_coefficients = filter_c<3>;
-    } else {
-        kernels.filter_coefficients = filter_c<4>;
+        return filter_c<3>;
     }
+
+    return filter_c<4>;
+}
+
+static DFTKernelDispatch selectCDispatch(const unsigned ftype, const DFTClipFormat& format, const DFTBlockSettings& block) noexcept {
+    DFTKernelDispatch kernels {};
+    kernels.filter_coefficients = selectCFilter(ftype, block);
 
     if (format.bytes_per_sample == 1) {
         kernels.copy_pad = copyPad<uint8_t>;
@@ -273,10 +276,17 @@ DFTKernelDispatch selectFunctions(const unsigned ftype, const unsigned opt, cons
         kernels.process_temporal = func_1_c<float>;
     }
 
-    if (opt == 0 || opt == 3 || opt == 8) {
-        kernels.filter_coefficients = neo_dfttest::GetHighwayFilter(ftype, block.f0_beta);
-        kernels.process_spatial = neo_dfttest::GetHighwayFunc0(format);
-        kernels.process_temporal = neo_dfttest::GetHighwayFunc1(format);
+    return kernels;
+}
+
+DFTKernelDispatch selectFunctions(const unsigned ftype, const unsigned opt, const DFTClipFormat& format, const DFTBlockSettings& block) noexcept {
+    DFTKernelDispatch kernels = selectCDispatch(ftype, format, block);
+
+    if (opt != 1) {
+        DFTKernelDispatch highway = neo_dfttest::GetHighwayDispatch(ftype, format, block);
+        kernels.filter_coefficients = highway.filter_coefficients;
+        kernels.process_spatial = highway.process_spatial;
+        kernels.process_temporal = highway.process_temporal;
     }
 
     return kernels;
