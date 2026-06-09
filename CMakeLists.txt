@@ -17,6 +17,8 @@ add_library(neo-dfttest SHARED
   src/engine/dfttest_engine.hpp
   src/engine/dfttest_config.cpp
   src/engine/dfttest_config.hpp
+  src/executor/cpu_dft_executor.cpp
+  src/executor/dft_executor.hpp
   src/fft/fft_backend.hpp
   src/fft/fftw_backend.cpp
   src/fft/pocketfft_backend.cpp

@@ -14,6 +14,7 @@
 #include "dft_common.h"
 #include "engine/dfttest_config.hpp"
 #include "engine/pixel_plane.hpp"
+#include "executor/dft_executor.hpp"
 
 #include <algorithm>
 #include <array>
@@ -132,6 +133,7 @@ public:
       state_.format,
       state_.block
     );
+    executor_ = create_cpu_dft_executor(state_.kernels);
 
     if (state_.format.integer) {
       state_.sample.multiplier = static_cast<float>(1 << (state_.format.bits_per_sample - 8));
@@ -605,7 +607,7 @@ private:
           padded_plane,
           kernel_context
         );
-        state_.kernels.process_spatial(
+        executor_->process_spatial(
           thread_id,
           plane,
           DFTPlaneBytes{padded_plane.data, padded_plane.stride_bytes},
@@ -656,7 +658,7 @@ private:
           );
         }
 
-        state_.kernels.process_temporal(
+        executor_->process_temporal(
           thread_id,
           plane,
           DFTPlaneBytes{pad0.data(), state_.planes.pad_stride[plane]},
@@ -742,6 +744,7 @@ private:
   DFTTestData state_{};
   DfttestConfig config_{};
   std::unique_ptr<fft::Backend> fft_;
+  std::unique_ptr<DftExecutor> executor_;
   float wscale_ = 1.0f;
   std::vector<NPInfo> noise_points_;
   bool noise_profile_ready_ = false;
