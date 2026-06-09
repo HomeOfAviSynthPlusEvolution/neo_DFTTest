@@ -1,6 +1,6 @@
 #include "plugin/dfttest_filter.hpp"
 
-#include "engine/dfttest_engine_impl.hpp"
+#include "engine/dfttest_engine.hpp"
 
 #include <exception>
 #include <memory>

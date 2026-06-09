@@ -4,7 +4,7 @@
  * DFTTest engine implementation.
  */
 
-#pragma once
+#include "engine/dfttest_engine.hpp"
 
 #include <avisynth.h>
 
@@ -140,13 +140,13 @@ inline int plane_stride(const ds::MutablePlaneView& plane) {
 
 } // namespace detail
 
-class DftTestEngine {
+class DftTestEngine::Impl {
 public:
-  DftTestEngine() = default;
-  DftTestEngine(const DftTestEngine&) = delete;
-  DftTestEngine& operator=(const DftTestEngine&) = delete;
+  Impl() = default;
+  Impl(const Impl&) = delete;
+  Impl& operator=(const Impl&) = delete;
 
-  ~DftTestEngine() {
+  ~Impl() {
     _aligned_free(ep_.hw);
     _aligned_free(ep_.dftgc);
     _aligned_free(ep_.sigmas);
@@ -285,7 +285,7 @@ public:
 private:
   class ThreadSlot {
   public:
-    explicit ThreadSlot(DftTestEngine& owner)
+    explicit ThreadSlot(Impl& owner)
       : owner_(owner),
         id_(owner.acquire_thread_slot()) {}
 
@@ -301,7 +301,7 @@ private:
     }
 
   private:
-    DftTestEngine& owner_;
+    Impl& owner_;
     unsigned int id_;
   };
 
@@ -992,5 +992,38 @@ private:
   std::mutex thread_check_mutex_;
   std::vector<int> thread_id_store_;
 };
+
+DftTestEngine::DftTestEngine()
+  : impl_(std::make_unique<Impl>()) {}
+
+DftTestEngine::~DftTestEngine() = default;
+
+DftTestEngine::DftTestEngine(DftTestEngine&&) noexcept = default;
+
+DftTestEngine& DftTestEngine::operator=(DftTestEngine&&) noexcept = default;
+
+void DftTestEngine::initialize(
+  const ds::VideoInputInfo& input,
+  const ds::ParamValues* params,
+  ds::HostGlobalLockCallbacks host_locks
+) {
+  impl_->initialize(input, params, host_locks);
+}
+
+void DftTestEngine::request_frames(ds::VideoRequestContext& context) const {
+  impl_->request_frames(context);
+}
+
+void DftTestEngine::process_frame(
+  int n,
+  ds::VideoFrameProvider& provider,
+  ds::MutableVideoFrameView dst
+) {
+  impl_->process_frame(n, provider, dst);
+}
+
+int DftTestEngine::cache_hints(int cachehints, int frame_range, int default_response) {
+  return impl_->cache_hints(cachehints, frame_range, default_response);
+}
 
 } // namespace neo_dfttest
