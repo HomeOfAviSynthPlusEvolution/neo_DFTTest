@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <utility>
 
 #include "fftwlite.h"
 
@@ -64,20 +65,38 @@ struct C2RBatch {
 
 class Completion {
 public:
+  class State {
+  public:
+    virtual ~State() = default;
+    virtual void wait() noexcept = 0;
+    [[nodiscard]] virtual bool ready() const noexcept = 0;
+  };
+
   Completion(const Completion&) = delete;
   Completion& operator=(const Completion&) = delete;
   Completion(Completion&&) noexcept = default;
   Completion& operator=(Completion&&) noexcept = default;
 
+  explicit Completion(std::unique_ptr<State> state) noexcept
+    : state_(std::move(state)) {}
+
   static Completion completed() noexcept {
     return Completion();
   }
 
-  void wait() noexcept {}
-  [[nodiscard]] bool ready() const noexcept { return true; }
+  void wait() noexcept {
+    if (state_) {
+      state_->wait();
+    }
+  }
+
+  [[nodiscard]] bool ready() const noexcept {
+    return !state_ || state_->ready();
+  }
 
 private:
   Completion() = default;
+  std::unique_ptr<State> state_;
 };
 
 class Backend {
