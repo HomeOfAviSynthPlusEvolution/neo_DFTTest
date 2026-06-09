@@ -173,6 +173,27 @@
         "threads": 1,
         "fft_threads": 1
       }
+    },
+    {
+      "id": "smoke_mp4_yuv420p8_tbsize1",
+      "tier": "smoke",
+      "source": {
+        "id": "mp4_yuv420p8_1280x720_10f",
+        "type": "ffms2",
+        "path": "../sources/14946398.mp4"
+      },
+      "frames": [
+        0,
+        5,
+        9
+      ],
+      "params": {
+        "tbsize": 1,
+        "sbsize": 16,
+        "sosize": 8,
+        "threads": 1,
+        "fft_threads": 1
+      }
     }
   ]
 }

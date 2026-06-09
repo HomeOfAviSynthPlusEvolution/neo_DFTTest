@@ -45,30 +45,19 @@ def select_cases(cases: list[dict], tier: str) -> list[dict]:
 
 
 def render_vs_script(plugin_path: str, source: dict, params: dict) -> str:
-    if source["type"] != "blank":
-        raise ValueError(f"unsupported source type: {source['type']}")
-
-    source_format = _source_value(source, "vs", "format")
-    source_color = _source_value(source, "vs", "color")
     param_text = ", ".join(
         f"{key}={_format_vs_value(params[key])}" for key in sorted(params)
     )
     if param_text:
         param_text = ", " + param_text
 
+    source_lines = _render_vs_source_lines(source)
     return "\n".join(
         [
             "import vapoursynth as vs",
             "core = vs.core",
             f"core.std.LoadPlugin(path={json.dumps(plugin_path)})",
-            (
-                "src = core.std.BlankClip("
-                f"width={source['width']}, "
-                f"height={source['height']}, "
-                f"length={source['length']}, "
-                f"format=vs.{source_format}, "
-                f"color={_format_vs_value(source_color)})"
-            ),
+            *source_lines,
             f"clip = core.neo_dfttest.DFTTest(src{param_text})",
             "clip.set_output()",
             "",
@@ -77,20 +66,47 @@ def render_vs_script(plugin_path: str, source: dict, params: dict) -> str:
 
 
 def render_avs_script(plugin_path: str, source: dict, params: dict) -> str:
-    if source["type"] != "blank":
-        raise ValueError(f"unsupported source type: {source['type']}")
-
-    source_format = _source_value(source, "avs", "format")
-    source_color_arg = _format_avs_source_color(source)
     param_text = ", ".join(
         f"{key}={_format_avs_value(params[key])}" for key in sorted(params)
     )
     if param_text:
         param_text = ", " + param_text
 
+    source_lines = _render_avs_source_lines(source)
     return "\n".join(
         [
             f"LoadPlugin({json.dumps(plugin_path)})",
+            *source_lines,
+            f"return neo_dfttest(src{param_text})",
+            "",
+        ]
+    )
+
+
+def _render_vs_source_lines(source: dict) -> list[str]:
+    if source["type"] == "blank":
+        source_format = _source_value(source, "vs", "format")
+        source_color = _source_value(source, "vs", "color")
+        return [
+            (
+                "src = core.std.BlankClip("
+                f"width={source['width']}, "
+                f"height={source['height']}, "
+                f"length={source['length']}, "
+                f"format=vs.{source_format}, "
+                f"color={_format_vs_value(source_color)})"
+            )
+        ]
+    if source["type"] == "ffms2":
+        return [f"src = core.ffms2.Source(source={json.dumps(_source_path(source))})"]
+    raise ValueError(f"unsupported source type: {source['type']}")
+
+
+def _render_avs_source_lines(source: dict) -> list[str]:
+    if source["type"] == "blank":
+        source_format = _source_value(source, "avs", "format")
+        source_color_arg = _format_avs_source_color(source)
+        return [
             (
                 "src = BlankClip("
                 f"width={source['width']}, "
@@ -98,11 +114,15 @@ def render_avs_script(plugin_path: str, source: dict, params: dict) -> str:
                 f"length={source['length']}, "
                 f"pixel_type={json.dumps(source_format)}, "
                 f"{source_color_arg})"
-            ),
-            f"return neo_dfttest(src{param_text})",
-            "",
+            )
         ]
-    )
+    if source["type"] == "ffms2":
+        return [f"src = FFVideoSource({json.dumps(_source_path(source))})"]
+    raise ValueError(f"unsupported source type: {source['type']}")
+
+
+def _source_path(source: dict) -> str:
+    return str(source["resolved_path"])
 
 
 def _format_vs_value(value) -> str:
@@ -146,8 +166,20 @@ def load_cases(cases_dir: Path) -> list[dict]:
     for path in sorted(cases_dir.glob("*.json")):
         with path.open("r", encoding="utf-8") as handle:
             payload = json.load(handle)
-        cases.extend(payload.get("cases", []))
+        cases.extend(_resolve_case_sources(payload.get("cases", []), path.parent))
     return cases
+
+
+def _resolve_case_sources(cases: list[dict], base_dir: Path) -> list[dict]:
+    resolved_cases = []
+    for case in cases:
+        resolved_case = dict(case)
+        source = dict(case["source"])
+        if source["type"] == "ffms2":
+            source["resolved_path"] = (base_dir / source["path"]).resolve()
+        resolved_case["source"] = source
+        resolved_cases.append(resolved_case)
+    return resolved_cases
 
 
 def run_vs_case(case: dict, plugin_path: Path) -> list[dict]:
@@ -159,17 +191,7 @@ def run_vs_case(case: dict, plugin_path: Path) -> list[dict]:
         core.std.LoadPlugin(path=plugin_key)
         _LOADED_VS_PLUGINS.add(plugin_key)
 
-    source = case["source"]
-    if source["type"] != "blank":
-        raise ValueError(f"unsupported source type: {source['type']}")
-
-    clip = core.std.BlankClip(
-        width=source["width"],
-        height=source["height"],
-        length=source["length"],
-        format=getattr(vs, _source_value(source, "vs", "format")),
-        color=_source_value(source, "vs", "color"),
-    )
+    clip = _vs_source_clip(core, vs, case["source"])
     clip = core.neo_dfttest.DFTTest(clip, **host_params(case, "vs"))
 
     results = []
@@ -178,6 +200,20 @@ def run_vs_case(case: dict, plugin_path: Path) -> list[dict]:
         planes, metadata = _vs_frame_planes(frame, clip.num_frames)
         results.append(_result_record(case, "vs", frame_number, hash_planes(planes), metadata))
     return results
+
+
+def _vs_source_clip(core, vs, source: dict):
+    if source["type"] == "blank":
+        return core.std.BlankClip(
+            width=source["width"],
+            height=source["height"],
+            length=source["length"],
+            format=getattr(vs, _source_value(source, "vs", "format")),
+            color=_source_value(source, "vs", "color"),
+        )
+    if source["type"] == "ffms2":
+        return core.ffms2.Source(source=_source_path(source))
+    raise ValueError(f"unsupported source type: {source['type']}")
 
 
 def run_avs_case(case: dict, plugin_path: Path, avs_dump: Path) -> list[dict]:

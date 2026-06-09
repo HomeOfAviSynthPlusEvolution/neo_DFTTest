@@ -1337,6 +1337,270 @@
       "sha256": "835fdaae0c03f557cc1bf7c127862d0cebccee3322575c47c6c1ecfea1d78986",
       "source": "blank_rgb24_64x48_9f",
       "tier": "smoke"
+    },
+    {
+      "case": "smoke_mp4_yuv420p8_tbsize1",
+      "frame": 0,
+      "host": "vs",
+      "metadata": {
+        "format": {
+          "bits_per_sample": 8,
+          "bytes_per_sample": 1,
+          "color_family": 3,
+          "id": 805830913,
+          "name": "YUV420P8",
+          "num_planes": 3,
+          "sample_type": 0,
+          "subsampling_h": 1,
+          "subsampling_w": 1
+        },
+        "frames": 10,
+        "height": 720,
+        "planes": [
+          {
+            "height": 720,
+            "name": "Y",
+            "row_bytes": 1280
+          },
+          {
+            "height": 360,
+            "name": "U",
+            "row_bytes": 640
+          },
+          {
+            "height": 360,
+            "name": "V",
+            "row_bytes": 640
+          }
+        ],
+        "width": 1280
+      },
+      "params": {
+        "fft_threads": 1,
+        "sbsize": 16,
+        "sosize": 8,
+        "tbsize": 1,
+        "threads": 1
+      },
+      "sha256": "905ad9e3dcbdb2c7f36595b9a8768d70ff06dfd1a2ff52facc15a4be9aee561b",
+      "source": "mp4_yuv420p8_1280x720_10f",
+      "tier": "smoke"
+    },
+    {
+      "case": "smoke_mp4_yuv420p8_tbsize1",
+      "frame": 5,
+      "host": "vs",
+      "metadata": {
+        "format": {
+          "bits_per_sample": 8,
+          "bytes_per_sample": 1,
+          "color_family": 3,
+          "id": 805830913,
+          "name": "YUV420P8",
+          "num_planes": 3,
+          "sample_type": 0,
+          "subsampling_h": 1,
+          "subsampling_w": 1
+        },
+        "frames": 10,
+        "height": 720,
+        "planes": [
+          {
+            "height": 720,
+            "name": "Y",
+            "row_bytes": 1280
+          },
+          {
+            "height": 360,
+            "name": "U",
+            "row_bytes": 640
+          },
+          {
+            "height": 360,
+            "name": "V",
+            "row_bytes": 640
+          }
+        ],
+        "width": 1280
+      },
+      "params": {
+        "fft_threads": 1,
+        "sbsize": 16,
+        "sosize": 8,
+        "tbsize": 1,
+        "threads": 1
+      },
+      "sha256": "37d116dfb6b10d6ab7d6a066c35b2e0a2d9f5f71fcdba42dfcd671ed6194f944",
+      "source": "mp4_yuv420p8_1280x720_10f",
+      "tier": "smoke"
+    },
+    {
+      "case": "smoke_mp4_yuv420p8_tbsize1",
+      "frame": 9,
+      "host": "vs",
+      "metadata": {
+        "format": {
+          "bits_per_sample": 8,
+          "bytes_per_sample": 1,
+          "color_family": 3,
+          "id": 805830913,
+          "name": "YUV420P8",
+          "num_planes": 3,
+          "sample_type": 0,
+          "subsampling_h": 1,
+          "subsampling_w": 1
+        },
+        "frames": 10,
+        "height": 720,
+        "planes": [
+          {
+            "height": 720,
+            "name": "Y",
+            "row_bytes": 1280
+          },
+          {
+            "height": 360,
+            "name": "U",
+            "row_bytes": 640
+          },
+          {
+            "height": 360,
+            "name": "V",
+            "row_bytes": 640
+          }
+        ],
+        "width": 1280
+      },
+      "params": {
+        "fft_threads": 1,
+        "sbsize": 16,
+        "sosize": 8,
+        "tbsize": 1,
+        "threads": 1
+      },
+      "sha256": "7ae1e53c4c1657880dac3232c998e0fc1040b8e4a615dfb80e8cdc0402050143",
+      "source": "mp4_yuv420p8_1280x720_10f",
+      "tier": "smoke"
+    },
+    {
+      "case": "smoke_mp4_yuv420p8_tbsize1",
+      "frame": 0,
+      "host": "avs",
+      "metadata": {
+        "bits_per_sample": 8,
+        "bytes_per_sample": 1,
+        "frames": 10,
+        "height": 720,
+        "pixel_type": -1610612728,
+        "planes": [
+          {
+            "height": 720,
+            "name": "Y",
+            "row_bytes": 1280
+          },
+          {
+            "height": 360,
+            "name": "U",
+            "row_bytes": 640
+          },
+          {
+            "height": 360,
+            "name": "V",
+            "row_bytes": 640
+          }
+        ],
+        "width": 1280
+      },
+      "params": {
+        "fft_threads": 1,
+        "sbsize": 16,
+        "sosize": 8,
+        "tbsize": 1,
+        "threads": 1
+      },
+      "sha256": "905ad9e3dcbdb2c7f36595b9a8768d70ff06dfd1a2ff52facc15a4be9aee561b",
+      "source": "mp4_yuv420p8_1280x720_10f",
+      "tier": "smoke"
+    },
+    {
+      "case": "smoke_mp4_yuv420p8_tbsize1",
+      "frame": 5,
+      "host": "avs",
+      "metadata": {
+        "bits_per_sample": 8,
+        "bytes_per_sample": 1,
+        "frames": 10,
+        "height": 720,
+        "pixel_type": -1610612728,
+        "planes": [
+          {
+            "height": 720,
+            "name": "Y",
+            "row_bytes": 1280
+          },
+          {
+            "height": 360,
+            "name": "U",
+            "row_bytes": 640
+          },
+          {
+            "height": 360,
+            "name": "V",
+            "row_bytes": 640
+          }
+        ],
+        "width": 1280
+      },
+      "params": {
+        "fft_threads": 1,
+        "sbsize": 16,
+        "sosize": 8,
+        "tbsize": 1,
+        "threads": 1
+      },
+      "sha256": "37d116dfb6b10d6ab7d6a066c35b2e0a2d9f5f71fcdba42dfcd671ed6194f944",
+      "source": "mp4_yuv420p8_1280x720_10f",
+      "tier": "smoke"
+    },
+    {
+      "case": "smoke_mp4_yuv420p8_tbsize1",
+      "frame": 9,
+      "host": "avs",
+      "metadata": {
+        "bits_per_sample": 8,
+        "bytes_per_sample": 1,
+        "frames": 10,
+        "height": 720,
+        "pixel_type": -1610612728,
+        "planes": [
+          {
+            "height": 720,
+            "name": "Y",
+            "row_bytes": 1280
+          },
+          {
+            "height": 360,
+            "name": "U",
+            "row_bytes": 640
+          },
+          {
+            "height": 360,
+            "name": "V",
+            "row_bytes": 640
+          }
+        ],
+        "width": 1280
+      },
+      "params": {
+        "fft_threads": 1,
+        "sbsize": 16,
+        "sosize": 8,
+        "tbsize": 1,
+        "threads": 1
+      },
+      "sha256": "7ae1e53c4c1657880dac3232c998e0fc1040b8e4a615dfb80e8cdc0402050143",
+      "source": "mp4_yuv420p8_1280x720_10f",
+      "tier": "smoke"
     }
   ],
   "schema": 2
