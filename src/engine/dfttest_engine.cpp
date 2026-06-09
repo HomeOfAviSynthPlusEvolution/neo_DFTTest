@@ -128,7 +128,7 @@ public:
       state_.format,
       state_.block
     );
-    executor_ = create_cpu_dft_executor(state_.kernels);
+    executor_ = create_cpu_dft_executor(static_cast<unsigned>(config_.opt), state_.format);
 
     if (state_.format.integer) {
       state_.sample.multiplier = static_cast<float>(1 << (state_.format.bits_per_sample - 8));

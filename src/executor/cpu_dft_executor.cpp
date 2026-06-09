@@ -1,12 +1,14 @@
 #include "executor/dft_executor.hpp"
 
+#include "core.h"
+
 #include <stdexcept>
 
 namespace neo_dfttest {
 
 class CpuDftExecutor final : public DftExecutor {
 public:
-  explicit CpuDftExecutor(DFTKernelDispatch dispatch) noexcept
+  explicit CpuDftExecutor(DFTCpuProcessDispatch dispatch) noexcept
     : process_spatial_(dispatch.process_spatial),
       process_temporal_(dispatch.process_temporal) {}
 
@@ -42,8 +44,8 @@ private:
   DFTProcessTemporalFunction process_temporal_ {nullptr};
 };
 
-std::unique_ptr<DftExecutor> create_cpu_dft_executor(DFTKernelDispatch dispatch) {
-  return std::make_unique<CpuDftExecutor>(dispatch);
+std::unique_ptr<DftExecutor> create_cpu_dft_executor(unsigned opt, DFTClipFormat format) {
+  return std::make_unique<CpuDftExecutor>(select_cpu_process_dispatch(opt, format));
 }
 
 } // namespace neo_dfttest

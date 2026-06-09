@@ -28,6 +28,6 @@ public:
   ) = 0;
 };
 
-std::unique_ptr<DftExecutor> create_cpu_dft_executor(DFTKernelDispatch dispatch);
+std::unique_ptr<DftExecutor> create_cpu_dft_executor(unsigned opt, DFTClipFormat format);
 
 } // namespace neo_dfttest

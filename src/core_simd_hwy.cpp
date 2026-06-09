@@ -544,9 +544,14 @@ DFTKernelDispatch make_highway_dispatch(DFTFilterPlan filter_plan, const DFTClip
     DFTKernelDispatch kernels {};
     kernels.filter_coefficients = select_highway_filter(filter_plan);
     kernels.filter_plan = filter_plan;
-    kernels.process_spatial = select_highway_spatial_processor(format);
-    kernels.process_temporal = select_highway_temporal_processor(format);
     return kernels;
+}
+
+DFTCpuProcessDispatch make_highway_process_dispatch(const DFTClipFormat& format) {
+    return DFTCpuProcessDispatch{
+        select_highway_spatial_processor(format),
+        select_highway_temporal_processor(format)
+    };
 }
 
 } // namespace neo_dfttest

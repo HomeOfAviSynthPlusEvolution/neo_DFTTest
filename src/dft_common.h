@@ -102,8 +102,6 @@ struct DFTFilterPlan {
 
 using DFTCopyPadFunction = void (*)(int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const DFTKernelContext& context) noexcept;
 using DFTFilterCoefficientsFunction = void (*)(DFTFilterInput input);
-using DFTProcessSpatialFunction = void (*)(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const DFTKernelContext& context);
-using DFTProcessTemporalFunction = void (*)(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, int temporal_position, const DFTKernelContext& context);
 
 struct DFTFftState {
     neo_dfttest::fft::Backend* backend {nullptr};
@@ -248,8 +246,6 @@ struct DFTKernelDispatch {
     DFTCopyPadFunction copy_pad {nullptr};
     DFTFilterCoefficientsFunction filter_coefficients {nullptr};
     DFTFilterPlan filter_plan;
-    DFTProcessSpatialFunction process_spatial {nullptr};
-    DFTProcessTemporalFunction process_temporal {nullptr};
 };
 
 struct DFTKernelContext {

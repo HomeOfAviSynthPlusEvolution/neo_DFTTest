@@ -91,19 +91,24 @@ static DFTKernelDispatch make_scalar_dispatch(const DFTFilterPlan filter_plan, c
 
     if (format.bytes_per_sample == 1) {
         kernels.copy_pad = copyPad<uint8_t>;
-        kernels.process_spatial = process_spatial_scalar<uint8_t>;
-        kernels.process_temporal = process_temporal_scalar<uint8_t>;
     } else if (format.bytes_per_sample == 2) {
         kernels.copy_pad = copyPad<uint16_t>;
-        kernels.process_spatial = process_spatial_scalar<uint16_t>;
-        kernels.process_temporal = process_temporal_scalar<uint16_t>;
     } else {
         kernels.copy_pad = copyPad<float>;
-        kernels.process_spatial = process_spatial_scalar<float>;
-        kernels.process_temporal = process_temporal_scalar<float>;
     }
 
     return kernels;
+}
+
+static DFTCpuProcessDispatch make_scalar_process_dispatch(const DFTClipFormat& format) noexcept {
+    if (format.bytes_per_sample == 1) {
+        return DFTCpuProcessDispatch{process_spatial_scalar<uint8_t>, process_temporal_scalar<uint8_t>};
+    }
+    if (format.bytes_per_sample == 2) {
+        return DFTCpuProcessDispatch{process_spatial_scalar<uint16_t>, process_temporal_scalar<uint16_t>};
+    }
+
+    return DFTCpuProcessDispatch{process_spatial_scalar<float>, process_temporal_scalar<float>};
 }
 
 DFTKernelDispatch selectFunctions(const unsigned ftype, const unsigned opt, const DFTClipFormat& format, const DFTBlockSettings& block) noexcept {
@@ -114,9 +119,15 @@ DFTKernelDispatch selectFunctions(const unsigned ftype, const unsigned opt, cons
         DFTKernelDispatch highway = neo_dfttest::make_highway_dispatch(filter_plan, format);
         kernels.filter_coefficients = highway.filter_coefficients;
         kernels.filter_plan = highway.filter_plan;
-        kernels.process_spatial = highway.process_spatial;
-        kernels.process_temporal = highway.process_temporal;
     }
 
     return kernels;
+}
+
+DFTCpuProcessDispatch select_cpu_process_dispatch(const unsigned opt, const DFTClipFormat& format) noexcept {
+    if (opt != 1) {
+        return neo_dfttest::make_highway_process_dispatch(format);
+    }
+
+    return make_scalar_process_dispatch(format);
 }
