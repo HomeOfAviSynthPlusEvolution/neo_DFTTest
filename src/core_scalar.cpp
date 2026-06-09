@@ -219,6 +219,34 @@ void filter_scalar<6>(DFTFilterInput input) noexcept {
     }
 }
 
+static void filter_coefficients_scalar(const DFTFilterPlan filter_plan, DFTFilterInput input) noexcept {
+    switch (filter_plan.kind) {
+        case DFTFilterKind::wiener:
+            filter_scalar<0>(input);
+            return;
+        case DFTFilterKind::hard_threshold:
+            filter_scalar<1>(input);
+            return;
+        case DFTFilterKind::multiplier:
+            filter_scalar<2>(input);
+            return;
+        case DFTFilterKind::range_multiplier:
+            filter_scalar<3>(input);
+            return;
+        case DFTFilterKind::range_wiener:
+            filter_scalar<4>(input);
+            return;
+        case DFTFilterKind::wiener_power:
+            filter_scalar<5>(input);
+            return;
+        case DFTFilterKind::wiener_sqrt:
+            filter_scalar<6>(input);
+            return;
+    }
+
+    filter_scalar<0>(input);
+}
+
 template<typename T>
 void cast(const float * ebp, T * VS_RESTRICT dstp, const int dstWidth, const int dstHeight, const int dstStride, const int ebpStride,
                  const float multiplier, const int peak) noexcept;
@@ -336,7 +364,7 @@ void process_spatial_scalar(unsigned int thread_id, int plane, DFTPlaneBytes src
                         DFTMutableFloatSpan{complex_float_data(dftc2), context.derived.coefficient_count}
                     );
 
-                context.filter_coefficients(make_filter_input(dftc, context));
+                filter_coefficients_scalar(context.filter_plan, make_filter_input(dftc, context));
 
                 if (context.block.zero_mean)
                     add_mean(
@@ -419,7 +447,7 @@ void process_temporal_scalar(unsigned int thread_id, int plane, DFTPlaneBytes sr
                         DFTMutableFloatSpan{complex_float_data(dftc2), context.derived.coefficient_count}
                     );
 
-                context.filter_coefficients(make_filter_input(dftc, context));
+                filter_coefficients_scalar(context.filter_plan, make_filter_input(dftc, context));
 
                 if (context.block.zero_mean)
                     add_mean(

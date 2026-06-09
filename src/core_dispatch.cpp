@@ -63,30 +63,8 @@ static DFTFilterPlan make_filter_plan(const unsigned ftype, const DFTBlockSettin
     return DFTFilterPlan{DFTFilterKind::range_wiener, false};
 }
 
-static DFTFilterCoefficientsFunction select_scalar_filter(const DFTFilterPlan filter_plan) noexcept {
-    switch (filter_plan.kind) {
-        case DFTFilterKind::wiener:
-            return filter_scalar<0>;
-        case DFTFilterKind::hard_threshold:
-            return filter_scalar<1>;
-        case DFTFilterKind::multiplier:
-            return filter_scalar<2>;
-        case DFTFilterKind::range_multiplier:
-            return filter_scalar<3>;
-        case DFTFilterKind::range_wiener:
-            return filter_scalar<4>;
-        case DFTFilterKind::wiener_power:
-            return filter_scalar<5>;
-        case DFTFilterKind::wiener_sqrt:
-            return filter_scalar<6>;
-    }
-
-    return filter_scalar<0>;
-}
-
 static DFTKernelDispatch make_scalar_dispatch(const DFTFilterPlan filter_plan) noexcept {
     DFTKernelDispatch kernels {};
-    kernels.filter_coefficients = select_scalar_filter(filter_plan);
     kernels.filter_plan = filter_plan;
     return kernels;
 }
@@ -114,16 +92,10 @@ static DFTCpuProcessDispatch make_scalar_process_dispatch(const DFTClipFormat& f
 }
 
 DFTKernelDispatch selectFunctions(const unsigned ftype, const unsigned opt, const DFTClipFormat& format, const DFTBlockSettings& block) noexcept {
+    (void)opt;
+    (void)format;
     const DFTFilterPlan filter_plan = make_filter_plan(ftype, block);
-    DFTKernelDispatch kernels = make_scalar_dispatch(filter_plan);
-
-    if (opt != 1) {
-        DFTKernelDispatch highway = neo_dfttest::make_highway_dispatch(filter_plan, format);
-        kernels.filter_coefficients = highway.filter_coefficients;
-        kernels.filter_plan = highway.filter_plan;
-    }
-
-    return kernels;
+    return make_scalar_dispatch(filter_plan);
 }
 
 DFTCpuProcessDispatch select_cpu_process_dispatch(const unsigned opt, const DFTClipFormat& format) noexcept {

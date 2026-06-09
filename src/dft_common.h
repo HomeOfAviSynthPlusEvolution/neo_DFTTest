@@ -100,8 +100,6 @@ struct DFTFilterPlan {
     bool custom_f0_beta {false};
 };
 
-using DFTFilterCoefficientsFunction = void (*)(DFTFilterInput input);
-
 struct DFTFftState {
     neo_dfttest::fft::Backend* backend {nullptr};
     neo_dfttest::fft::Plan forward;
@@ -242,7 +240,6 @@ struct DFTThreadScratch {
 };
 
 struct DFTKernelDispatch {
-    DFTFilterCoefficientsFunction filter_coefficients {nullptr};
     DFTFilterPlan filter_plan;
 };
 
@@ -256,7 +253,6 @@ struct DFTKernelContext {
     const DFTBatchPolicy& batch_policy;
     const DFTCoefficientTables& coefficients;
     DFTThreadScratch& scratch;
-    DFTFilterCoefficientsFunction filter_coefficients {nullptr};
     DFTFilterPlan filter_plan;
 };
 
@@ -284,7 +280,6 @@ inline DFTKernelContext make_kernel_context(const DFTTestData& state) noexcept {
         state.batch_policy,
         state.coefficients,
         state.scratch,
-        state.kernels.filter_coefficients,
         state.kernels.filter_plan
     };
 }

@@ -327,6 +327,35 @@ void AddMeanHighway(float * dftc, const int ccnt, const float * dftc2) {
     }
 }
 
+static void FilterCoefficientsHighway(DFTFilterPlan filter_plan, DFTFilterInput input) {
+    switch (filter_plan.kind) {
+        case DFTFilterKind::wiener:
+            FilterHighway<0>(input);
+            return;
+        case DFTFilterKind::hard_threshold:
+            FilterHighway<1>(input);
+            return;
+        case DFTFilterKind::multiplier:
+            FilterHighway<2>(input);
+            return;
+        case DFTFilterKind::range_multiplier:
+            FilterHighway<3>(input);
+            return;
+        case DFTFilterKind::range_wiener:
+            FilterHighway<4>(input);
+            return;
+        case DFTFilterKind::wiener_power:
+            FilterHighway<5>(input);
+            return;
+        case DFTFilterKind::wiener_sqrt:
+            FilterHighway<6>(input);
+            return;
+    }
+
+    FilterHighway<0>(input);
+}
+
+
 // Implements spatial processing using Highway
 template<typename T>
 void ProcessSpatialHighway(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const DFTKernelContext& context) {
@@ -357,7 +386,7 @@ void ProcessSpatialHighway(unsigned int thread_id, int plane, DFTPlaneBytes src,
                 if (context.block.zero_mean)
                     RemoveMeanHighway(complex_float_data(dftc), complex_float_data(context.coefficients.window_dft.data()), context.derived.coefficient_count, complex_float_data(dftc2));
 
-                context.filter_coefficients(make_filter_input(dftc, context));
+                FilterCoefficientsHighway(context.filter_plan, make_filter_input(dftc, context));
 
                 if (context.block.zero_mean)
                     AddMeanHighway(complex_float_data(dftc), context.derived.coefficient_count, complex_float_data(dftc2));
@@ -435,7 +464,7 @@ void ProcessTemporalHighway(unsigned int thread_id, int plane, DFTPlaneBytes src
                 if (context.block.zero_mean)
                     RemoveMeanHighway(complex_float_data(dftc), complex_float_data(context.coefficients.window_dft.data()), context.derived.coefficient_count, complex_float_data(dftc2));
 
-                context.filter_coefficients(make_filter_input(dftc, context));
+                FilterCoefficientsHighway(context.filter_plan, make_filter_input(dftc, context));
 
                 if (context.block.zero_mean)
                     AddMeanHighway(complex_float_data(dftc), context.derived.coefficient_count, complex_float_data(dftc2));
@@ -505,29 +534,6 @@ HWY_EXPORT_T(FilterHighway_Type4, FilterHighway<4>);
 HWY_EXPORT_T(FilterHighway_Type5, FilterHighway<5>);
 HWY_EXPORT_T(FilterHighway_Type6, FilterHighway<6>);
 
-using FilterFunc = void (*)(DFTFilterInput input);
-
-static FilterFunc select_highway_filter(DFTFilterPlan filter_plan) {
-    switch (filter_plan.kind) {
-        case DFTFilterKind::wiener:
-            return HWY_DYNAMIC_POINTER(FilterHighway_Type0);
-        case DFTFilterKind::hard_threshold:
-            return HWY_DYNAMIC_POINTER(FilterHighway_Type1);
-        case DFTFilterKind::multiplier:
-            return HWY_DYNAMIC_POINTER(FilterHighway_Type2);
-        case DFTFilterKind::range_multiplier:
-            return HWY_DYNAMIC_POINTER(FilterHighway_Type3);
-        case DFTFilterKind::range_wiener:
-            return HWY_DYNAMIC_POINTER(FilterHighway_Type4);
-        case DFTFilterKind::wiener_power:
-            return HWY_DYNAMIC_POINTER(FilterHighway_Type5);
-        case DFTFilterKind::wiener_sqrt:
-            return HWY_DYNAMIC_POINTER(FilterHighway_Type6);
-    }
-
-    return HWY_DYNAMIC_POINTER(FilterHighway_Type0);
-}
-
 static DFTProcessSpatialFunction select_highway_spatial_processor(const DFTClipFormat& format) {
     if (format.bytes_per_sample == 1) return HWY_DYNAMIC_POINTER(ProcessSpatial_u8);
     if (format.bytes_per_sample == 2) return HWY_DYNAMIC_POINTER(ProcessSpatial_u16);
@@ -538,13 +544,6 @@ static DFTProcessTemporalFunction select_highway_temporal_processor(const DFTCli
     if (format.bytes_per_sample == 1) return HWY_DYNAMIC_POINTER(ProcessTemporal_u8);
     if (format.bytes_per_sample == 2) return HWY_DYNAMIC_POINTER(ProcessTemporal_u16);
     return HWY_DYNAMIC_POINTER(ProcessTemporal_f32);
-}
-
-DFTKernelDispatch make_highway_dispatch(DFTFilterPlan filter_plan, const DFTClipFormat& format) {
-    DFTKernelDispatch kernels {};
-    kernels.filter_coefficients = select_highway_filter(filter_plan);
-    kernels.filter_plan = filter_plan;
-    return kernels;
 }
 
 DFTCpuProcessDispatch make_highway_process_dispatch(const DFTClipFormat& format) {

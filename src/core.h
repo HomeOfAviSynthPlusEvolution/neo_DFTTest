@@ -28,6 +28,5 @@ DFTCpuProcessDispatch select_cpu_process_dispatch(unsigned opt, const DFTClipFor
 
 // Highway functions
 namespace neo_dfttest {
-    DFTKernelDispatch make_highway_dispatch(DFTFilterPlan filter_plan, const DFTClipFormat& format);
     DFTCpuProcessDispatch make_highway_process_dispatch(const DFTClipFormat& format);
 }
