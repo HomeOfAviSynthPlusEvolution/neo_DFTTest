@@ -56,6 +56,13 @@ std::unique_ptr<fft::Backend> create_fft_backend(std::string_view name) {
   if (name == "pocketfft") {
     return fft::create_pocketfft_backend();
   }
+  if (name == "vkfft" || name == "vkfft-vulkan") {
+#if defined(NEO_DFTTEST_ENABLE_VKFFT_VULKAN)
+    return fft::create_vkfft_vulkan_backend();
+#else
+    throw std::runtime_error("fft_backend 'vkfft-vulkan' requires a build with NEO_DFTTEST_ENABLE_VKFFT_VULKAN=ON");
+#endif
+  }
   throw std::runtime_error("unsupported FFT backend");
 }
 

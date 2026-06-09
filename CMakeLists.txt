@@ -1,5 +1,7 @@
 cmake_minimum_required (VERSION 3.24)
 project (neo_dfttest CXX)
+option(NEO_DFTTEST_ENABLE_VKFFT_VULKAN "Enable optional VkFFT Vulkan backend" OFF)
+
 add_library(neo-dfttest SHARED
   src/plugin/plugin_entry.cpp
   src/plugin/dfttest_filter.cpp
@@ -37,6 +39,37 @@ endif()
 target_compile_definitions(neo-dfttest PRIVATE _CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_DEPRECATE)
 
 include(FetchContent)
+
+if(NEO_DFTTEST_ENABLE_VKFFT_VULKAN)
+  find_package(Vulkan REQUIRED)
+  FetchContent_Declare(
+    vkfft
+    GIT_REPOSITORY https://github.com/DTolm/VkFFT.git
+    GIT_TAG v1.3.4
+  )
+  FetchContent_MakeAvailable(vkfft)
+
+  set(ENABLE_OPT 0 CACHE BOOL "" FORCE)
+  FetchContent_Declare(
+    glslang-main
+    GIT_REPOSITORY https://github.com/KhronosGroup/glslang.git
+    GIT_TAG 12.3.1
+  )
+  FetchContent_MakeAvailable(glslang-main)
+
+  target_sources(neo-dfttest PRIVATE src/fft/vkfft_vulkan_backend.cpp)
+  target_include_directories(neo-dfttest PRIVATE
+    ${vkfft_SOURCE_DIR}/vkFFT
+    ${glslang-main_SOURCE_DIR}/glslang/Include
+  )
+  target_compile_definitions(neo-dfttest PRIVATE
+    NEO_DFTTEST_ENABLE_VKFFT_VULKAN=1
+    VKFFT_BACKEND=0
+    VK_API_VERSION=11
+  )
+  target_link_libraries(neo-dfttest Vulkan::Vulkan SPIRV glslang)
+endif()
+
 FetchContent_Declare(
   highway
   GIT_REPOSITORY https://github.com/google/highway.git

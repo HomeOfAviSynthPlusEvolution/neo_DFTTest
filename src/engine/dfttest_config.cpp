@@ -106,8 +106,13 @@ DfttestConfig DfttestConfig::read(const ds::ParamValues& values, DFTTestData& st
   config.fft_threads_auto = !has_param(values, "fft_threads") || requested_fft_threads <= 0;
   config.fft_threads = config.fft_threads_auto ? 1 : requested_fft_threads;
 
-  if (config.fft_backend != "fftw" && config.fft_backend != "pocketfft") {
-    throw std::runtime_error("fft_backend must be 'fftw' or 'pocketfft'");
+  if (
+    config.fft_backend != "fftw" &&
+    config.fft_backend != "pocketfft" &&
+    config.fft_backend != "vkfft" &&
+    config.fft_backend != "vkfft-vulkan"
+  ) {
+    throw std::runtime_error("fft_backend must be 'fftw', 'pocketfft', 'vkfft', or 'vkfft-vulkan'");
   }
 
   if (config.smode == 0) {

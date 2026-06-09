@@ -200,6 +200,9 @@ inline C2RBatch single_c2r_batch(Complex* input, Real* output, std::ptrdiff_t co
 
 std::unique_ptr<Backend> create_fftw_backend();
 std::unique_ptr<Backend> create_pocketfft_backend();
+#if defined(NEO_DFTTEST_ENABLE_VKFFT_VULKAN)
+std::unique_ptr<Backend> create_vkfft_vulkan_backend();
+#endif
 
 } // namespace neo_dfttest::fft
 
