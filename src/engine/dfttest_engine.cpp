@@ -128,7 +128,7 @@ public:
     state_.block.worker_threads = 1;
 #endif
 
-    selectFunctions(static_cast<unsigned>(config_.ftype), static_cast<unsigned>(config_.opt), &state_);
+    state_.kernels = selectFunctions(static_cast<unsigned>(config_.ftype), static_cast<unsigned>(config_.opt), state_);
 
     if (state_.format.integer) {
       state_.sample.multiplier = static_cast<float>(1 << (state_.format.bits_per_sample - 8));

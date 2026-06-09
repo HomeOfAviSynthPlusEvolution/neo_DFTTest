@@ -154,7 +154,7 @@ struct NPInfo {
     int fn, b, y, x;
 };
 
-void selectFunctions(const unsigned ftype, const unsigned opt, DFTTestData * d) noexcept;
+DFTKernelDispatch selectFunctions(const unsigned ftype, const unsigned opt, const DFTTestData& d) noexcept;
 void createWindow(float * VS_RESTRICT hw, const int tmode, const int smode, const DFTTestData * d) noexcept;
 float * parseSigmaLocation(const std::vector<float> s, int & poscnt, const float sigma, const float pfact);
 float interp(const float pf, const float * pv, const int cnt) noexcept;

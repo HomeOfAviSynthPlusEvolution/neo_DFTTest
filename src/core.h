@@ -17,8 +17,8 @@ template<typename T> void func_1_c(unsigned int thread_id, int plane, const unsi
 namespace neo_dfttest {
     using FilterFunc = void (*)(float *, const float *, const int, const float *, const float *, const float *);
     FilterFunc GetHighwayFilter(int ftype, float f0beta);
-    void GetHighwayFunc0(DFTTestData* d);
-    void GetHighwayFunc1(DFTTestData* d);
+    DFTProcessSpatialFunction GetHighwayFunc0(const DFTTestData& d);
+    DFTProcessTemporalFunction GetHighwayFunc1(const DFTTestData& d);
 
     // Getters for internal testing
     using Proc0Func_u8 = void (*)(const uint8_t*, const float*, float*, int, int, float);

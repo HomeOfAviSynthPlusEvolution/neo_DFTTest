@@ -511,16 +511,16 @@ FilterFunc GetHighwayFilter(int ftype, float f0beta) {
     else return HWY_DYNAMIC_POINTER(Filter_Type4);
 }
 
-void GetHighwayFunc0(DFTTestData* d) {
-    if (d->format.bytes_per_sample == 1) d->kernels.process_spatial = HWY_DYNAMIC_POINTER(Func0_u8);
-    else if (d->format.bytes_per_sample == 2) d->kernels.process_spatial = HWY_DYNAMIC_POINTER(Func0_u16);
-    else d->kernels.process_spatial = HWY_DYNAMIC_POINTER(Func0_f32);
+DFTProcessSpatialFunction GetHighwayFunc0(const DFTTestData& d) {
+    if (d.format.bytes_per_sample == 1) return HWY_DYNAMIC_POINTER(Func0_u8);
+    if (d.format.bytes_per_sample == 2) return HWY_DYNAMIC_POINTER(Func0_u16);
+    return HWY_DYNAMIC_POINTER(Func0_f32);
 }
 
-void GetHighwayFunc1(DFTTestData* d) {
-    if (d->format.bytes_per_sample == 1) d->kernels.process_temporal = HWY_DYNAMIC_POINTER(Func1_u8);
-    else if (d->format.bytes_per_sample == 2) d->kernels.process_temporal = HWY_DYNAMIC_POINTER(Func1_u16);
-    else d->kernels.process_temporal = HWY_DYNAMIC_POINTER(Func1_f32);
+DFTProcessTemporalFunction GetHighwayFunc1(const DFTTestData& d) {
+    if (d.format.bytes_per_sample == 1) return HWY_DYNAMIC_POINTER(Func1_u8);
+    if (d.format.bytes_per_sample == 2) return HWY_DYNAMIC_POINTER(Func1_u16);
+    return HWY_DYNAMIC_POINTER(Func1_f32);
 }
 
 // Getters for internal testing

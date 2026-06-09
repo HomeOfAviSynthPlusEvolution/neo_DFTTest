@@ -243,41 +243,45 @@ float getSVal(const int pos, const int len, const float * pv, const int cnt, flo
     return interp(pf, pv, cnt);
 }
 
-void selectFunctions(const unsigned ftype, const unsigned opt, DFTTestData * d) noexcept {
+DFTKernelDispatch selectFunctions(const unsigned ftype, const unsigned opt, const DFTTestData& d) noexcept {
+    DFTKernelDispatch kernels {};
+
     if (ftype == 0) {
-        if (std::abs(d->block.f0_beta - 1.0f) < 0.00005f)
-            d->kernels.filter_coefficients = filter_c<0>;
-        else if (std::abs(d->block.f0_beta - 0.5f) < 0.00005f)
-            d->kernels.filter_coefficients = filter_c<6>;
+        if (std::abs(d.block.f0_beta - 1.0f) < 0.00005f)
+            kernels.filter_coefficients = filter_c<0>;
+        else if (std::abs(d.block.f0_beta - 0.5f) < 0.00005f)
+            kernels.filter_coefficients = filter_c<6>;
         else
-            d->kernels.filter_coefficients = filter_c<5>;
+            kernels.filter_coefficients = filter_c<5>;
     } else if (ftype == 1) {
-        d->kernels.filter_coefficients = filter_c<1>;
+        kernels.filter_coefficients = filter_c<1>;
     } else if (ftype == 2) {
-        d->kernels.filter_coefficients = filter_c<2>;
+        kernels.filter_coefficients = filter_c<2>;
     } else if (ftype == 3) {
-        d->kernels.filter_coefficients = filter_c<3>;
+        kernels.filter_coefficients = filter_c<3>;
     } else {
-        d->kernels.filter_coefficients = filter_c<4>;
+        kernels.filter_coefficients = filter_c<4>;
     }
 
-    if (d->format.bytes_per_sample == 1) {
-        d->kernels.copy_pad = copyPad<uint8_t>;
-        d->kernels.process_spatial = func_0_c<uint8_t>;
-        d->kernels.process_temporal = func_1_c<uint8_t>;
-    } else if (d->format.bytes_per_sample == 2) {
-        d->kernels.copy_pad = copyPad<uint16_t>;
-        d->kernels.process_spatial = func_0_c<uint16_t>;
-        d->kernels.process_temporal = func_1_c<uint16_t>;
+    if (d.format.bytes_per_sample == 1) {
+        kernels.copy_pad = copyPad<uint8_t>;
+        kernels.process_spatial = func_0_c<uint8_t>;
+        kernels.process_temporal = func_1_c<uint8_t>;
+    } else if (d.format.bytes_per_sample == 2) {
+        kernels.copy_pad = copyPad<uint16_t>;
+        kernels.process_spatial = func_0_c<uint16_t>;
+        kernels.process_temporal = func_1_c<uint16_t>;
     } else {
-        d->kernels.copy_pad = copyPad<float>;
-        d->kernels.process_spatial = func_0_c<float>;
-        d->kernels.process_temporal = func_1_c<float>;
+        kernels.copy_pad = copyPad<float>;
+        kernels.process_spatial = func_0_c<float>;
+        kernels.process_temporal = func_1_c<float>;
     }
 
     if (opt == 0 || opt == 3 || opt == 8) {
-        d->kernels.filter_coefficients = neo_dfttest::GetHighwayFilter(ftype, d->block.f0_beta);
-        neo_dfttest::GetHighwayFunc0(d);
-        neo_dfttest::GetHighwayFunc1(d);
+        kernels.filter_coefficients = neo_dfttest::GetHighwayFilter(ftype, d.block.f0_beta);
+        kernels.process_spatial = neo_dfttest::GetHighwayFunc0(d);
+        kernels.process_temporal = neo_dfttest::GetHighwayFunc1(d);
     }
+
+    return kernels;
 }
