@@ -93,8 +93,8 @@ using DFTProcessTemporalFunction = void (*)(unsigned int thread_id, int plane, D
 
 struct DFTFftState {
     neo_dfttest::fft::Backend* backend {nullptr};
-    neo_dfttest::fft::Plan forward {nullptr};
-    neo_dfttest::fft::Plan inverse {nullptr};
+    neo_dfttest::fft::Plan forward;
+    neo_dfttest::fft::Plan inverse;
 };
 
 struct DFTClipFormat {

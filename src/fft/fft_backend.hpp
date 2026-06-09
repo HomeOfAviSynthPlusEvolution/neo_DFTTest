@@ -1,19 +1,41 @@
 #ifndef NEO_DFTTEST_FFT_BACKEND_HPP
 #define NEO_DFTTEST_FFT_BACKEND_HPP
 
+#include <array>
 #include <cstddef>
 #include <memory>
+#include <type_traits>
 #include <utility>
-
-#include "fftwlite.h"
 
 namespace neo_dfttest::fft {
 
 using Real = float;
-using Complex = fftwf_complex;
-using Plan = fftwf_plan;
 
-constexpr unsigned kPatientDestroyInputPlanFlags = FFTW_PATIENT | FFTW_DESTROY_INPUT;
+struct Complex {
+  float real {0.0f};
+  float imag {0.0f};
+};
+
+static_assert(std::is_standard_layout_v<Complex>);
+static_assert(sizeof(Complex) == sizeof(float) * 2);
+static_assert(alignof(Complex) == alignof(float));
+
+enum class TransformDirection {
+  r2c,
+  c2r,
+};
+
+struct TransformShape {
+  int rank {2};
+  std::array<int, 3> extents {1, 1, 1};
+};
+
+struct PlanOptions {
+  bool patient {true};
+  bool destroy_input {true};
+};
+
+constexpr PlanOptions kPatientDestroyInputPlanOptions {};
 
 enum class MemoryDomain {
   host,
@@ -99,6 +121,34 @@ private:
   std::unique_ptr<State> state_;
 };
 
+class Plan {
+public:
+  class State {
+  public:
+    virtual ~State() = default;
+  };
+
+  Plan() = default;
+  explicit Plan(std::unique_ptr<State> state) noexcept
+    : state_(std::move(state)) {}
+
+  Plan(const Plan&) = delete;
+  Plan& operator=(const Plan&) = delete;
+  Plan(Plan&&) noexcept = default;
+  Plan& operator=(Plan&&) noexcept = default;
+
+  [[nodiscard]] bool valid() const noexcept {
+    return state_ != nullptr;
+  }
+
+  [[nodiscard]] const State& state() const noexcept {
+    return *state_;
+  }
+
+private:
+  std::unique_ptr<State> state_;
+};
+
 class Backend {
 public:
   virtual ~Backend() = default;
@@ -111,14 +161,16 @@ public:
   virtual void set_thread_count(int nthreads) = 0;
   virtual BackendCapabilities capabilities() const noexcept = 0;
 
-  virtual Plan plan_r2c_2d(int n0, int n1, Real* in, Complex* out, unsigned flags) = 0;
-  virtual Plan plan_c2r_2d(int n0, int n1, Complex* in, Real* out, unsigned flags) = 0;
-  virtual Plan plan_r2c_3d(int n0, int n1, int n2, Real* in, Complex* out, unsigned flags) = 0;
-  virtual Plan plan_c2r_3d(int n0, int n1, int n2, Complex* in, Real* out, unsigned flags) = 0;
+  virtual Plan make_plan(
+    TransformDirection direction,
+    TransformShape shape,
+    Real* real_workspace,
+    Complex* complex_workspace,
+    PlanOptions options = {}
+  ) = 0;
 
-  virtual Completion submit_r2c(Plan plan, R2CBatch batch, SubmitOptions options = {}) const noexcept = 0;
-  virtual Completion submit_c2r(Plan plan, C2RBatch batch, SubmitOptions options = {}) const noexcept = 0;
-  virtual void destroy_plan(Plan plan) noexcept = 0;
+  virtual Completion submit_r2c(const Plan& plan, R2CBatch batch, SubmitOptions options = {}) const noexcept = 0;
+  virtual Completion submit_c2r(const Plan& plan, C2RBatch batch, SubmitOptions options = {}) const noexcept = 0;
 };
 
 inline R2CBatch single_r2c_batch(Real* input, Complex* output, std::ptrdiff_t real_stride, std::ptrdiff_t complex_stride) noexcept {

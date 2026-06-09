@@ -54,8 +54,8 @@ public:
   ~Impl() {
     if (fft_ && fft_->loaded()) {
       ds::HostGlobalLockGuard lock("fftw", host_locks_);
-      fft_->destroy_plan(state_.fft.forward);
-      fft_->destroy_plan(state_.fft.inverse);
+      state_.fft.forward = fft::Plan();
+      state_.fft.inverse = fft::Plan();
       fft_->unload();
     }
   }
@@ -245,39 +245,23 @@ private:
 
     {
       ds::HostGlobalLockGuard fftw_lock("fftw", host_locks_);
-      if (state_.block.temporal_size > 1) {
-        state_.fft.forward = state_.fft.backend->plan_r2c_3d(
-          state_.block.temporal_size,
-          state_.block.spatial_size,
-          state_.block.spatial_size,
-          dftgr.data(),
-          state_.coefficients.window_dft.data(),
-          fft::kPatientDestroyInputPlanFlags
-        );
-        state_.fft.inverse = state_.fft.backend->plan_c2r_3d(
-          state_.block.temporal_size,
-          state_.block.spatial_size,
-          state_.block.spatial_size,
-          state_.coefficients.window_dft.data(),
-          dftgr.data(),
-          fft::kPatientDestroyInputPlanFlags
-        );
-      } else {
-        state_.fft.forward = state_.fft.backend->plan_r2c_2d(
-          state_.block.spatial_size,
-          state_.block.spatial_size,
-          dftgr.data(),
-          state_.coefficients.window_dft.data(),
-          fft::kPatientDestroyInputPlanFlags
-        );
-        state_.fft.inverse = state_.fft.backend->plan_c2r_2d(
-          state_.block.spatial_size,
-          state_.block.spatial_size,
-          state_.coefficients.window_dft.data(),
-          dftgr.data(),
-          fft::kPatientDestroyInputPlanFlags
-        );
-      }
+      const fft::TransformShape shape = state_.block.temporal_size > 1
+        ? fft::TransformShape{3, {state_.block.temporal_size, state_.block.spatial_size, state_.block.spatial_size}}
+        : fft::TransformShape{2, {state_.block.spatial_size, state_.block.spatial_size, 1}};
+      state_.fft.forward = state_.fft.backend->make_plan(
+        fft::TransformDirection::r2c,
+        shape,
+        dftgr.data(),
+        state_.coefficients.window_dft.data(),
+        fft::kPatientDestroyInputPlanOptions
+      );
+      state_.fft.inverse = state_.fft.backend->make_plan(
+        fft::TransformDirection::c2r,
+        shape,
+        dftgr.data(),
+        state_.coefficients.window_dft.data(),
+        fft::kPatientDestroyInputPlanOptions
+      );
     }
 
     float wscale = 0.0f;
