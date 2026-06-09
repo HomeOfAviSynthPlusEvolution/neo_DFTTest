@@ -113,14 +113,14 @@ inline void framecpy(
   }
 }
 
-struct AlignedDeleter {
-  void operator()(void* p) const {
-    _aligned_free(p);
-  }
-};
-
 template <class T>
-using AlignedPtr = std::unique_ptr<T, AlignedDeleter>;
+AlignedBuffer<T> make_aligned_buffer(std::size_t count, const char* name) {
+  try {
+    return AlignedBuffer<T>(count);
+  } catch (const std::bad_alloc&) {
+    throw std::runtime_error(std::string("malloc failure (") + name + ")");
+  }
+}
 
 inline unsigned char* writable_plane_data(ds::MutableVideoFrameView& frame, int plane) {
   return static_cast<unsigned char*>(frame.plane(plane).data);
@@ -147,29 +147,6 @@ public:
   Impl& operator=(const Impl&) = delete;
 
   ~Impl() {
-    _aligned_free(state_.coefficients.window);
-    _aligned_free(state_.coefficients.window_dft);
-    _aligned_free(state_.coefficients.sigmas);
-    _aligned_free(state_.coefficients.sigmas2);
-    _aligned_free(state_.coefficients.pmins);
-    _aligned_free(state_.coefficients.pmaxs);
-
-    for (auto&& buf : state_.scratch.ebuff) {
-      _aligned_free(buf);
-    }
-    for (auto&& buf : state_.scratch.dftr) {
-      _aligned_free(buf);
-    }
-    for (auto&& buf : state_.scratch.dftc) {
-      _aligned_free(buf);
-    }
-    for (auto&& buf : state_.scratch.dftc2) {
-      _aligned_free(buf);
-    }
-    for (auto&& buf : state_.scratch.dither_buffers) {
-      _aligned_free(buf);
-    }
-
     if (fft_ && fft_->loaded()) {
       ds::HostGlobalLockGuard lock("fftw", host_locks_);
       fft_->destroy_plan(state_.fft.forward);
@@ -506,20 +483,13 @@ private:
   }
 
   void create_fft_plans() {
-    state_.coefficients.window = static_cast<float*>(_aligned_malloc((state_.derived.block_volume + 7) * sizeof(float), FRAME_ALIGN));
-    if (!state_.coefficients.window) {
-      throw std::runtime_error("malloc failure (hw)");
-    }
-    createWindow(state_.coefficients.window, tmode_, smode_, &state_);
+    state_.coefficients.window =
+      detail::make_aligned_buffer<float>(state_.derived.block_volume + 7, "hw");
+    createWindow(state_.coefficients.window.data(), tmode_, smode_, &state_);
 
-    float* dftgr = static_cast<float*>(_aligned_malloc((state_.derived.block_volume + 7) * sizeof(float), FRAME_ALIGN));
-    detail::AlignedPtr<float> dftgr_smart(dftgr);
-    state_.coefficients.window_dft = static_cast<fft::Complex*>(
-      _aligned_malloc((state_.derived.complex_count + 7) * sizeof(fft::Complex), FRAME_ALIGN)
-    );
-    if (!dftgr || !state_.coefficients.window_dft) {
-      throw std::runtime_error("malloc failure (dftgr/dftgc)");
-    }
+    auto dftgr = detail::make_aligned_buffer<float>(state_.derived.block_volume + 7, "dftgr");
+    state_.coefficients.window_dft =
+      detail::make_aligned_buffer<fft::Complex>(state_.derived.complex_count + 7, "dftgc");
 
     {
       ds::HostGlobalLockGuard fftw_lock("fftw", host_locks_);
@@ -528,39 +498,39 @@ private:
           state_.block.temporal_size,
           state_.block.spatial_size,
           state_.block.spatial_size,
-          dftgr,
-          state_.coefficients.window_dft,
+          dftgr.data(),
+          state_.coefficients.window_dft.data(),
           fft::kPatientDestroyInputPlanFlags
         );
         state_.fft.inverse = state_.fft.backend->plan_c2r_3d(
           state_.block.temporal_size,
           state_.block.spatial_size,
           state_.block.spatial_size,
-          state_.coefficients.window_dft,
-          dftgr,
+          state_.coefficients.window_dft.data(),
+          dftgr.data(),
           fft::kPatientDestroyInputPlanFlags
         );
       } else {
         state_.fft.forward = state_.fft.backend->plan_r2c_2d(
           state_.block.spatial_size,
           state_.block.spatial_size,
-          dftgr,
-          state_.coefficients.window_dft,
+          dftgr.data(),
+          state_.coefficients.window_dft.data(),
           fft::kPatientDestroyInputPlanFlags
         );
         state_.fft.inverse = state_.fft.backend->plan_c2r_2d(
           state_.block.spatial_size,
           state_.block.spatial_size,
-          state_.coefficients.window_dft,
-          dftgr,
+          state_.coefficients.window_dft.data(),
+          dftgr.data(),
           fft::kPatientDestroyInputPlanFlags
         );
       }
     }
 
     float wscale = 0.0f;
-    const float* hw_t = state_.coefficients.window;
-    float* dftgr_t = dftgr;
+    const float* hw_t = state_.coefficients.window.data();
+    float* dftgr_t = dftgr.data();
     for (int s = 0; s < state_.block.temporal_size; s++) {
       for (int y = 0; y < state_.block.spatial_size; y++) {
         for (int x = 0; x < state_.block.spatial_size; x++) {
@@ -572,20 +542,21 @@ private:
       }
     }
 
-    state_.fft.backend->execute_r2c(state_.fft.forward, dftgr, state_.coefficients.window_dft);
+    state_.fft.backend->execute_r2c(state_.fft.forward, dftgr.data(), state_.coefficients.window_dft.data());
     wscale_ = 1.0f / wscale;
   }
 
   void initialize_sigma_profile() {
     const float wscalef = (ftype_ < 2) ? wscale_ : 1.0f;
 
-    state_.coefficients.sigmas = static_cast<float*>(_aligned_malloc((state_.derived.coefficient_count + 7) * sizeof(float), FRAME_ALIGN));
-    state_.coefficients.sigmas2 = static_cast<float*>(_aligned_malloc((state_.derived.coefficient_count + 7) * sizeof(float), FRAME_ALIGN));
-    state_.coefficients.pmins = static_cast<float*>(_aligned_malloc((state_.derived.coefficient_count + 7) * sizeof(float), FRAME_ALIGN));
-    state_.coefficients.pmaxs = static_cast<float*>(_aligned_malloc((state_.derived.coefficient_count + 7) * sizeof(float), FRAME_ALIGN));
-    if (!state_.coefficients.sigmas || !state_.coefficients.sigmas2 || !state_.coefficients.pmins || !state_.coefficients.pmaxs) {
-      throw std::runtime_error("malloc failure (sigmas/sigmas2/pmins/pmaxs)");
-    }
+    state_.coefficients.sigmas =
+      detail::make_aligned_buffer<float>(state_.derived.coefficient_count + 7, "sigmas");
+    state_.coefficients.sigmas2 =
+      detail::make_aligned_buffer<float>(state_.derived.coefficient_count + 7, "sigmas2");
+    state_.coefficients.pmins =
+      detail::make_aligned_buffer<float>(state_.derived.coefficient_count + 7, "pmins");
+    state_.coefficients.pmaxs =
+      detail::make_aligned_buffer<float>(state_.derived.coefficient_count + 7, "pmaxs");
 
     if (!slocation_.empty() || !ssx_.empty() || !ssy_.empty() || !sst_.empty()) {
       initialize_spatially_varying_sigmas(wscalef);
@@ -706,24 +677,17 @@ private:
       return;
     }
 
-    std::memset(state_.coefficients.sigmas, 0, static_cast<std::size_t>(state_.derived.coefficient_count) * sizeof(float));
-
-    float* hw2 = static_cast<float*>(_aligned_malloc((state_.derived.block_volume + 7) * sizeof(float), FRAME_ALIGN));
-    if (!hw2) {
-      throw std::runtime_error("malloc failure (hw2)");
-    }
-    detail::AlignedPtr<float> hw2_smart(hw2);
-    createWindow(hw2, 0, 0, &state_);
-
-    float* dftr = static_cast<float*>(_aligned_malloc((state_.derived.block_volume + 7) * sizeof(float), FRAME_ALIGN));
-    auto* dftgc2 = static_cast<fft::Complex*>(
-      _aligned_malloc((state_.derived.complex_count + 7) * sizeof(fft::Complex), FRAME_ALIGN)
+    std::memset(
+      state_.coefficients.sigmas.data(),
+      0,
+      static_cast<std::size_t>(state_.derived.coefficient_count) * sizeof(float)
     );
-    if (!dftr || !dftgc2) {
-      throw std::runtime_error("malloc failure (dftr/dftgc2)");
-    }
-    detail::AlignedPtr<float> dftr_smart(dftr);
-    detail::AlignedPtr<fft::Complex> dftgc2_smart(dftgc2);
+
+    auto hw2 = detail::make_aligned_buffer<float>(state_.derived.block_volume + 7, "hw2");
+    createWindow(hw2.data(), 0, 0, &state_);
+
+    auto dftr = detail::make_aligned_buffer<float>(state_.derived.block_volume + 7, "dftr");
+    auto dftgc2 = detail::make_aligned_buffer<fft::Complex>(state_.derived.complex_count + 7, "dftgc2");
 
     float wscale2 = 0.0f;
     int w = 0;
@@ -736,19 +700,10 @@ private:
       }
     }
     wscale2 = 1.0f / wscale2;
-    state_.fft.backend->execute_r2c(state_.fft.forward, dftr, dftgc2);
+    state_.fft.backend->execute_r2c(state_.fft.forward, dftr.data(), dftgc2.data());
 
-    auto* dftc = static_cast<fft::Complex*>(
-      _aligned_malloc((state_.derived.complex_count + 7) * sizeof(fft::Complex), FRAME_ALIGN)
-    );
-    auto* dftc2 = static_cast<fft::Complex*>(
-      _aligned_malloc((state_.derived.complex_count + 7) * sizeof(fft::Complex), FRAME_ALIGN)
-    );
-    if (!dftc || !dftc2) {
-      throw std::runtime_error("malloc failure (dftc/dftc2)");
-    }
-    detail::AlignedPtr<fft::Complex> dftc_smart(dftc);
-    detail::AlignedPtr<fft::Complex> dftc2_smart(dftc2);
+    auto dftc = detail::make_aligned_buffer<fft::Complex>(state_.derived.complex_count + 7, "dftc");
+    auto dftc2 = detail::make_aligned_buffer<fft::Complex>(state_.derived.complex_count + 7, "dftc2");
 
     for (const NPInfo& point : noise_points_) {
       for (int z = 0; z < state_.block.temporal_size; z++) {
@@ -763,31 +718,31 @@ private:
         if (state_.format.bytes_per_sample == 1) {
           const auto* srcp =
             static_cast<const std::uint8_t*>(plane.data) + stride_elements * point.y + point.x;
-          proc0_c(srcp, hw2 + state_.derived.block_area * z, dftr + state_.derived.block_area * z, stride_elements, state_.block.spatial_size, state_.sample.divisor);
+          proc0_c(srcp, hw2.data() + state_.derived.block_area * z, dftr.data() + state_.derived.block_area * z, stride_elements, state_.block.spatial_size, state_.sample.divisor);
         } else if (state_.format.bytes_per_sample == 2) {
           const auto* srcp =
             static_cast<const std::uint16_t*>(plane.data) + stride_elements * point.y + point.x;
-          proc0_c(srcp, hw2 + state_.derived.block_area * z, dftr + state_.derived.block_area * z, stride_elements, state_.block.spatial_size, state_.sample.divisor);
+          proc0_c(srcp, hw2.data() + state_.derived.block_area * z, dftr.data() + state_.derived.block_area * z, stride_elements, state_.block.spatial_size, state_.sample.divisor);
         } else {
           const auto* srcp =
             static_cast<const float*>(plane.data) + stride_elements * point.y + point.x;
-          proc0_c(srcp, hw2 + state_.derived.block_area * z, dftr + state_.derived.block_area * z, stride_elements, state_.block.spatial_size, state_.sample.divisor);
+          proc0_c(srcp, hw2.data() + state_.derived.block_area * z, dftr.data() + state_.derived.block_area * z, stride_elements, state_.block.spatial_size, state_.sample.divisor);
         }
       }
 
-      state_.fft.backend->execute_r2c(state_.fft.forward, dftr, dftc);
+      state_.fft.backend->execute_r2c(state_.fft.forward, dftr.data(), dftc.data());
 
       if (state_.block.zero_mean) {
         removeMean_c(
-          reinterpret_cast<float*>(dftc),
-          reinterpret_cast<const float*>(dftgc2),
+          reinterpret_cast<float*>(dftc.data()),
+          reinterpret_cast<const float*>(dftgc2.data()),
           state_.derived.coefficient_count,
-          reinterpret_cast<float*>(dftc2)
+          reinterpret_cast<float*>(dftc2.data())
         );
       }
 
       for (int h = 0; h < state_.derived.coefficient_count; h += 2) {
-        const float* dftc_f = reinterpret_cast<float*>(dftc);
+        const float* dftc_f = reinterpret_cast<float*>(dftc.data());
         const float psd = dftc_f[h] * dftc_f[h] + dftc_f[h + 1] * dftc_f[h + 1];
         state_.coefficients.sigmas[h] += psd;
         state_.coefficients.sigmas[h + 1] += psd;
@@ -818,13 +773,12 @@ private:
       auto* dst_ptr = detail::writable_plane_data(dst, plane);
 
       if (state_.planes.process[plane] == 3) {
-        auto* pad = static_cast<unsigned char*>(_aligned_malloc(state_.planes.pad_block_size[plane] * state_.block.temporal_size, FRAME_ALIGN));
-        if (!pad) {
-          throw std::runtime_error("pad0 allocation failed.");
-        }
-        detail::AlignedPtr<unsigned char> pad0_smart(pad);
-        state_.kernels.copy_pad(plane, src_ptr, src_stride, pad, &state_);
-        state_.kernels.process_spatial(thread_id, plane, pad, dst_ptr, dst_stride, &state_);
+        auto pad = detail::make_aligned_buffer<unsigned char>(
+          state_.planes.pad_block_size[plane] * state_.block.temporal_size,
+          "pad0"
+        );
+        state_.kernels.copy_pad(plane, src_ptr, src_stride, pad.data(), &state_);
+        state_.kernels.process_spatial(thread_id, plane, pad.data(), dst_ptr, dst_stride, &state_);
       } else if (state_.planes.process[plane] == 2) {
         detail::framecpy(
           dst_ptr,
@@ -858,11 +812,10 @@ private:
       auto* dst_ptr = detail::writable_plane_data(dst, plane);
 
       if (state_.planes.process[plane] == 3) {
-        auto* pad0 = static_cast<unsigned char*>(_aligned_malloc(state_.planes.pad_block_size[plane] * state_.block.temporal_size, FRAME_ALIGN));
-        if (!pad0) {
-          throw std::runtime_error("pad0 allocation failed.");
-        }
-        detail::AlignedPtr<unsigned char> pad0_smart(pad0);
+        auto pad0 = detail::make_aligned_buffer<unsigned char>(
+          state_.planes.pad_block_size[plane] * state_.block.temporal_size,
+          "pad0"
+        );
 
         for (int i = 0; i < state_.block.temporal_size; i++) {
           const int fn = i + n - pos;
@@ -875,11 +828,11 @@ private:
           const auto& src_plane = src_frame.value().frame.plane(plane);
           const int src_stride = detail::plane_stride(src_plane);
           const auto* src_ptr = detail::readable_plane_data(src_frame.value().frame, plane);
-          auto* pad = pad0 + state_.planes.pad_block_size[plane] * i;
+          auto* pad = pad0.data() + state_.planes.pad_block_size[plane] * i;
           state_.kernels.copy_pad(plane, src_ptr, src_stride, pad, &state_);
         }
 
-        state_.kernels.process_temporal(thread_id, plane, pad0, dst_ptr, dst_stride, pos, &state_);
+        state_.kernels.process_temporal(thread_id, plane, pad0.data(), dst_ptr, dst_stride, pos, &state_);
       } else if (state_.planes.process[plane] == 2) {
         detail::framecpy(
           dst_ptr,
@@ -918,45 +871,39 @@ private:
 
   void resize_thread_storage_unlocked(int count) {
     thread_id_store_.resize(static_cast<std::size_t>(count), 0);
-    state_.scratch.ebuff.resize(static_cast<std::size_t>(count), nullptr);
-    state_.scratch.dftr.resize(static_cast<std::size_t>(count), nullptr);
-    state_.scratch.dftc.resize(static_cast<std::size_t>(count), nullptr);
-    state_.scratch.dftc2.resize(static_cast<std::size_t>(count), nullptr);
-    state_.scratch.rngs.resize(static_cast<std::size_t>(count));
-    state_.scratch.dither_buffers.resize(static_cast<std::size_t>(count), nullptr);
+    state_.scratch.slots.resize(static_cast<std::size_t>(count));
   }
 
   void ensure_thread_buffers_unlocked(unsigned int thread_id) {
-    if (state_.scratch.ebuff[thread_id]) {
+    DFTThreadScratchSlot& slot = state_.scratch.slots[thread_id];
+    if (slot.ebuff) {
       return;
     }
 
-    state_.scratch.ebuff[thread_id] = static_cast<float*>(
-      _aligned_malloc(sizeof(float) * state_.planes.e_stride[0] * state_.planes.pad_height[0], FRAME_ALIGN)
+    slot.ebuff = detail::make_aligned_buffer<float>(
+      static_cast<std::size_t>(state_.planes.e_stride[0]) * state_.planes.pad_height[0],
+      "thread ebuff"
     );
-    state_.scratch.dftr[thread_id] = static_cast<float*>(
-      _aligned_malloc(sizeof(float) * (((state_.derived.block_volume + 7) | 15) + 1) * state_.block.worker_threads, FRAME_ALIGN)
+    slot.dftr = detail::make_aligned_buffer<float>(
+      static_cast<std::size_t>(((state_.derived.block_volume + 7) | 15) + 1) * state_.block.worker_threads,
+      "thread dftr"
     );
-    state_.scratch.dftc[thread_id] = static_cast<fft::Complex*>(
-      _aligned_malloc(sizeof(fft::Complex) * (((state_.derived.complex_count + 7) | 15) + 1) * state_.block.worker_threads, FRAME_ALIGN)
+    slot.dftc = detail::make_aligned_buffer<fft::Complex>(
+      static_cast<std::size_t>(((state_.derived.complex_count + 7) | 15) + 1) * state_.block.worker_threads,
+      "thread dftc"
     );
-    state_.scratch.dftc2[thread_id] = static_cast<fft::Complex*>(
-      _aligned_malloc(sizeof(fft::Complex) * (((state_.derived.complex_count + 7) | 15) + 1) * state_.block.worker_threads, FRAME_ALIGN)
+    slot.dftc2 = detail::make_aligned_buffer<fft::Complex>(
+      static_cast<std::size_t>(((state_.derived.complex_count + 7) | 15) + 1) * state_.block.worker_threads,
+      "thread dftc2"
     );
-
-    if (!state_.scratch.ebuff[thread_id] || !state_.scratch.dftr[thread_id] || !state_.scratch.dftc[thread_id] || !state_.scratch.dftc2[thread_id]) {
-      throw std::runtime_error("thread buffer allocation failed.");
-    }
 
     if (state_.block.dither_mode > 0) {
-      state_.scratch.dither_buffers[thread_id] = static_cast<float*>(
-        _aligned_malloc(sizeof(float) * 2 * state_.format.width, FRAME_ALIGN)
+      slot.dither_buffer = detail::make_aligned_buffer<float>(
+        static_cast<std::size_t>(2) * state_.format.width,
+        "dither buffer"
       );
-      if (!state_.scratch.dither_buffers[thread_id]) {
-        throw std::runtime_error("dither buffer allocation failed.");
-      }
       if (state_.block.dither_mode > 1) {
-        state_.scratch.rngs[thread_id] = std::make_unique<std::mt19937>(std::random_device{}());
+        slot.rng = std::make_unique<std::mt19937>(std::random_device{}());
       }
     }
   }

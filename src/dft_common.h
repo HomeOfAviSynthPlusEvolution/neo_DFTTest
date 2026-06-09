@@ -22,6 +22,7 @@
 #endif
 
 #include "fft/fft_backend.hpp"
+#include "memory/aligned_buffer.hpp"
 
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L
 #define VS_RESTRICT restrict
@@ -29,19 +30,6 @@
 #define VS_RESTRICT __restrict
 #else
 #define VS_RESTRICT
-#endif
-
-#ifndef FRAME_ALIGN
-#define FRAME_ALIGN 64
-#endif
-
-#ifndef _WIN32
-  inline void* dfttest_aligned_malloc(std::size_t size, std::size_t alignment) {
-      void* ptr = nullptr;
-      return posix_memalign(&ptr, alignment, size) == 0 ? ptr : nullptr;
-  }
-  #define _aligned_malloc(a,b) dfttest_aligned_malloc((a),(b))
-  #define _aligned_free free
 #endif
 
 #define EXTRA(a,b) (((a) % (b)) ? ((b) - ((a) % (b))) : 0)
@@ -116,21 +104,31 @@ struct DFTDerivedGeometry {
 };
 
 struct DFTCoefficientTables {
-    float* window {nullptr};
-    float* sigmas {nullptr};
-    float* sigmas2 {nullptr};
-    float* pmins {nullptr};
-    float* pmaxs {nullptr};
-    neo_dfttest::fft::Complex* window_dft {nullptr};
+    neo_dfttest::AlignedBuffer<float> window;
+    neo_dfttest::AlignedBuffer<float> sigmas;
+    neo_dfttest::AlignedBuffer<float> sigmas2;
+    neo_dfttest::AlignedBuffer<float> pmins;
+    neo_dfttest::AlignedBuffer<float> pmaxs;
+    neo_dfttest::AlignedBuffer<neo_dfttest::fft::Complex> window_dft;
+};
+
+struct DFTThreadScratchSlot {
+    DFTThreadScratchSlot() = default;
+    DFTThreadScratchSlot(const DFTThreadScratchSlot&) = delete;
+    DFTThreadScratchSlot& operator=(const DFTThreadScratchSlot&) = delete;
+    DFTThreadScratchSlot(DFTThreadScratchSlot&&) noexcept = default;
+    DFTThreadScratchSlot& operator=(DFTThreadScratchSlot&&) noexcept = default;
+
+    neo_dfttest::AlignedBuffer<float> dither_buffer;
+    std::unique_ptr<std::mt19937> rng;
+    neo_dfttest::AlignedBuffer<float> ebuff;
+    neo_dfttest::AlignedBuffer<float> dftr;
+    neo_dfttest::AlignedBuffer<neo_dfttest::fft::Complex> dftc;
+    neo_dfttest::AlignedBuffer<neo_dfttest::fft::Complex> dftc2;
 };
 
 struct DFTThreadScratch {
-    std::vector<float*> dither_buffers;
-    std::vector<std::unique_ptr<std::mt19937>> rngs;
-    std::vector<float*> ebuff;
-    std::vector<float*> dftr;
-    std::vector<neo_dfttest::fft::Complex*> dftc;
-    std::vector<neo_dfttest::fft::Complex*> dftc2;
+    std::vector<DFTThreadScratchSlot> slots;
 };
 
 struct DFTKernelDispatch {
@@ -148,7 +146,7 @@ struct DFTTestData {
     DFTSampleScale sample;
     DFTDerivedGeometry derived;
     DFTCoefficientTables coefficients;
-    DFTThreadScratch scratch;
+    mutable DFTThreadScratch scratch;
     DFTKernelDispatch kernels;
 };
 

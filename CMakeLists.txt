@@ -15,6 +15,7 @@ add_library(neo-dfttest SHARED
   src/fft/fft_backend.hpp
   src/fft/fftw_backend.cpp
   src/fftwlite.h
+  src/memory/aligned_buffer.hpp
 )
 set_property(TARGET neo-dfttest PROPERTY CXX_STANDARD 23)
 
