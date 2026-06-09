@@ -4,8 +4,10 @@
 #define _USE_MATH_DEFINES
 #include <cmath>
 #include <cstdio>
+#include <optional>
 #include <random>
 #include <type_traits>
+#include <utility>
 
 #include "dft_common.h"
 

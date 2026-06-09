@@ -658,16 +658,17 @@ private:
       static_cast<std::size_t>(state_.planes.e_stride[0]) * state_.planes.pad_height[0],
       "thread ebuff"
     );
+    const int scratch_slots = dft_fft_scratch_slots(state_.block, state_.fft.backend->capabilities().max_batch_size);
     slot.dftr = detail::make_aligned_buffer<float>(
-      static_cast<std::size_t>(dft_scratch_real_stride(state_.derived)) * state_.block.worker_threads,
+      static_cast<std::size_t>(dft_scratch_real_stride(state_.derived)) * scratch_slots,
       "thread dftr"
     );
     slot.dftc = detail::make_aligned_buffer<fft::Complex>(
-      static_cast<std::size_t>(dft_scratch_complex_stride(state_.derived)) * state_.block.worker_threads,
+      static_cast<std::size_t>(dft_scratch_complex_stride(state_.derived)) * scratch_slots,
       "thread dftc"
     );
     slot.dftc2 = detail::make_aligned_buffer<fft::Complex>(
-      static_cast<std::size_t>(dft_scratch_complex_stride(state_.derived)) * state_.block.worker_threads,
+      static_cast<std::size_t>(dft_scratch_complex_stride(state_.derived)) * scratch_slots,
       "thread dftc2"
     );
 

@@ -318,11 +318,72 @@ void process_spatial_scalar(unsigned int thread_id, int plane, DFTPlaneBytes src
 
     memset(ebuff, 0, ebpStride * height * sizeof(float));
 
+    struct PendingSpatialBatch {
+        DFTBlockBatch batch;
+        float* output_row {nullptr};
+        int slot {0};
+        neo_dfttest::fft::Completion forward;
+    };
+    std::optional<PendingSpatialBatch> pending;
+
+    auto real_slot = [&](int slot) noexcept {
+        return dft_real_batch_data(dftr_base, real_stride, slot * batch_capacity);
+    };
+    auto complex_slot = [&](neo_dfttest::fft::Complex* base, int slot) noexcept {
+        return dft_complex_batch_data(base, complex_stride, slot * batch_capacity);
+    };
+    auto consume_pending = [&](PendingSpatialBatch& pending_batch) noexcept {
+        pending_batch.forward.wait();
+        auto* pending_dftr = real_slot(pending_batch.slot);
+        auto* pending_dftc = complex_slot(dftc_base, pending_batch.slot);
+        auto* pending_dftc2 = complex_slot(dftc2_base, pending_batch.slot);
+
+        for (int index = 0; index < pending_batch.batch.count; ++index) {
+            auto* dftc = dft_complex_batch_data(pending_dftc, complex_stride, index);
+            auto* dftc2 = dft_complex_batch_data(pending_dftc2, complex_stride, index);
+            if (context.block.zero_mean)
+                remove_mean(
+                    DFTMutableFloatSpan{complex_float_data(dftc), context.derived.coefficient_count},
+                    DFTConstFloatSpan{complex_float_data(context.coefficients.window_dft.data()), context.derived.coefficient_count},
+                    DFTMutableFloatSpan{complex_float_data(dftc2), context.derived.coefficient_count}
+                );
+
+            context.filter_coefficients(make_filter_input(dftc, context));
+
+            if (context.block.zero_mean)
+                add_mean(
+                    DFTMutableFloatSpan{complex_float_data(dftc), context.derived.coefficient_count},
+                    DFTConstFloatSpan{complex_float_data(dftc2), context.derived.coefficient_count}
+                );
+        }
+
+        context.fft.backend->submit_c2r(
+            context.fft.inverse,
+            neo_dfttest::fft::C2RBatch{
+                neo_dfttest::fft::ComplexBatchView{pending_dftc, complex_stride, neo_dfttest::fft::MemoryDomain::host},
+                neo_dfttest::fft::RealBatchView{pending_dftr, real_stride, neo_dfttest::fft::MemoryDomain::host},
+                pending_batch.batch.count,
+            }
+        ).wait();
+
+        for (int index = 0; index < pending_batch.batch.count; ++index) {
+            float* dftr = dft_real_batch_data(pending_dftr, real_stride, index);
+            const int block_x = pending_batch.batch.x_offsets[static_cast<std::size_t>(index)];
+            if (context.derived.transform_type & 1) // spatial overlapping
+                accumulate_overlap(dftr, context.coefficients.window.data(), pending_batch.output_row + block_x, context.block.spatial_size, ebpStride);
+            else
+                pending_batch.output_row[block_x + context.derived.spatial_center * ebpStride + context.derived.spatial_center] = dftr[context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center] * context.coefficients.window.data()[context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center];
+        }
+    };
+
+    int active_slot = 0;
     for (int y = 0; y < eheight; y += context.derived.step) {
         for (int x = 0; x <= width - context.block.spatial_size;) {
+            float* active_dftr = real_slot(active_slot);
+            auto* active_dftc = complex_slot(dftc_base, active_slot);
             batch.count = 0;
             for (; batch.count < batch_capacity && x <= width - context.block.spatial_size; ++batch.count, x += context.derived.step) {
-                float* dftr = dft_real_batch_data(dftr_base, real_stride, batch.count);
+                float* dftr = dft_real_batch_data(active_dftr, real_stride, batch.count);
                 batch.x_offsets[static_cast<std::size_t>(batch.count)] = x;
                 load_windowed_block<T>(
                     DFTConstSampleBlock<T>{srcp + x, srcStride, context.block.spatial_size},
@@ -332,55 +393,27 @@ void process_spatial_scalar(unsigned int thread_id, int plane, DFTPlaneBytes src
                 );
             }
 
-            context.fft.backend->submit_r2c(
+            auto forward = context.fft.backend->submit_r2c(
                 context.fft.forward,
                 neo_dfttest::fft::R2CBatch{
-                    neo_dfttest::fft::RealBatchView{dftr_base, real_stride, neo_dfttest::fft::MemoryDomain::host},
-                    neo_dfttest::fft::ComplexBatchView{dftc_base, complex_stride, neo_dfttest::fft::MemoryDomain::host},
+                    neo_dfttest::fft::RealBatchView{active_dftr, real_stride, neo_dfttest::fft::MemoryDomain::host},
+                    neo_dfttest::fft::ComplexBatchView{active_dftc, complex_stride, neo_dfttest::fft::MemoryDomain::host},
                     batch.count,
                 }
-            ).wait();
+            );
 
-            for (int index = 0; index < batch.count; ++index) {
-                auto* dftc = dft_complex_batch_data(dftc_base, complex_stride, index);
-                auto* dftc2 = dft_complex_batch_data(dftc2_base, complex_stride, index);
-                if (context.block.zero_mean)
-                    remove_mean(
-                        DFTMutableFloatSpan{complex_float_data(dftc), context.derived.coefficient_count},
-                        DFTConstFloatSpan{complex_float_data(context.coefficients.window_dft.data()), context.derived.coefficient_count},
-                        DFTMutableFloatSpan{complex_float_data(dftc2), context.derived.coefficient_count}
-                    );
-
-                context.filter_coefficients(make_filter_input(dftc, context));
-
-                if (context.block.zero_mean)
-                    add_mean(
-                        DFTMutableFloatSpan{complex_float_data(dftc), context.derived.coefficient_count},
-                        DFTConstFloatSpan{complex_float_data(dftc2), context.derived.coefficient_count}
-                    );
+            if (pending) {
+                consume_pending(*pending);
             }
-
-            context.fft.backend->submit_c2r(
-                context.fft.inverse,
-                neo_dfttest::fft::C2RBatch{
-                    neo_dfttest::fft::ComplexBatchView{dftc_base, complex_stride, neo_dfttest::fft::MemoryDomain::host},
-                    neo_dfttest::fft::RealBatchView{dftr_base, real_stride, neo_dfttest::fft::MemoryDomain::host},
-                    batch.count,
-                }
-            ).wait();
-
-            for (int index = 0; index < batch.count; ++index) {
-                float* dftr = dft_real_batch_data(dftr_base, real_stride, index);
-                const int block_x = batch.x_offsets[static_cast<std::size_t>(index)];
-                if (context.derived.transform_type & 1) // spatial overlapping
-                    accumulate_overlap(dftr, context.coefficients.window.data(), ebpSaved + block_x, context.block.spatial_size, ebpStride);
-                else
-                    ebpSaved[block_x + context.derived.spatial_center * ebpStride + context.derived.spatial_center] = dftr[context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center] * context.coefficients.window.data()[context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center];
-            }
+            pending.emplace(PendingSpatialBatch{batch, ebpSaved, active_slot, std::move(forward)});
+            active_slot = 1 - active_slot;
         }
 
         srcp += srcStride * context.derived.step;
         ebpSaved += ebpStride * context.derived.step;
+    }
+    if (pending) {
+        consume_pending(*pending);
     }
 
     int dstWidth = context.planes.width[plane];
@@ -417,11 +450,72 @@ void process_temporal_scalar(unsigned int thread_id, int plane, DFTPlaneBytes sr
 
     memset(ebuff, 0, ebpStride * height * sizeof(float));
 
+    struct PendingTemporalBatch {
+        DFTBlockBatch batch;
+        int y {0};
+        int slot {0};
+        neo_dfttest::fft::Completion forward;
+    };
+    std::optional<PendingTemporalBatch> pending;
+
+    auto real_slot = [&](int slot) noexcept {
+        return dft_real_batch_data(dftr_base, real_stride, slot * batch_capacity);
+    };
+    auto complex_slot = [&](neo_dfttest::fft::Complex* base, int slot) noexcept {
+        return dft_complex_batch_data(base, complex_stride, slot * batch_capacity);
+    };
+    auto consume_pending = [&](PendingTemporalBatch& pending_batch) noexcept {
+        pending_batch.forward.wait();
+        auto* pending_dftr = real_slot(pending_batch.slot);
+        auto* pending_dftc = complex_slot(dftc_base, pending_batch.slot);
+        auto* pending_dftc2 = complex_slot(dftc2_base, pending_batch.slot);
+
+        for (int index = 0; index < pending_batch.batch.count; ++index) {
+            auto* dftc = dft_complex_batch_data(pending_dftc, complex_stride, index);
+            auto* dftc2 = dft_complex_batch_data(pending_dftc2, complex_stride, index);
+            if (context.block.zero_mean)
+                remove_mean(
+                    DFTMutableFloatSpan{complex_float_data(dftc), context.derived.coefficient_count},
+                    DFTConstFloatSpan{complex_float_data(context.coefficients.window_dft.data()), context.derived.coefficient_count},
+                    DFTMutableFloatSpan{complex_float_data(dftc2), context.derived.coefficient_count}
+                );
+
+            context.filter_coefficients(make_filter_input(dftc, context));
+
+            if (context.block.zero_mean)
+                add_mean(
+                    DFTMutableFloatSpan{complex_float_data(dftc), context.derived.coefficient_count},
+                    DFTConstFloatSpan{complex_float_data(dftc2), context.derived.coefficient_count}
+                );
+        }
+
+        context.fft.backend->submit_c2r(
+            context.fft.inverse,
+            neo_dfttest::fft::C2RBatch{
+                neo_dfttest::fft::ComplexBatchView{pending_dftc, complex_stride, neo_dfttest::fft::MemoryDomain::host},
+                neo_dfttest::fft::RealBatchView{pending_dftr, real_stride, neo_dfttest::fft::MemoryDomain::host},
+                pending_batch.batch.count,
+            }
+        ).wait();
+
+        for (int index = 0; index < pending_batch.batch.count; ++index) {
+            float* dftr = dft_real_batch_data(pending_dftr, real_stride, index);
+            const int block_x = pending_batch.batch.x_offsets[static_cast<std::size_t>(index)];
+            if (context.derived.transform_type & 1) // spatial overlapping
+                accumulate_overlap(dftr + pos * context.derived.block_area, context.coefficients.window.data() + pos * context.derived.block_area, ebuff + pending_batch.y * ebpStride + block_x, context.block.spatial_size, ebpStride);
+            else
+                ebuff[(pending_batch.y + context.derived.spatial_center) * ebpStride + block_x + context.derived.spatial_center] = dftr[pos * context.derived.block_area + context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center] * context.coefficients.window.data()[pos * context.derived.block_area + context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center];
+        }
+    };
+
+    int active_slot = 0;
     for (int y = 0; y < eheight; y += context.derived.step) {
         for (int x = 0; x <= width - context.block.spatial_size;) {
+            float* active_dftr = real_slot(active_slot);
+            auto* active_dftc = complex_slot(dftc_base, active_slot);
             batch.count = 0;
             for (; batch.count < batch_capacity && x <= width - context.block.spatial_size; ++batch.count, x += context.derived.step) {
-                float* dftr = dft_real_batch_data(dftr_base, real_stride, batch.count);
+                float* dftr = dft_real_batch_data(active_dftr, real_stride, batch.count);
                 batch.x_offsets[static_cast<std::size_t>(batch.count)] = x;
                 for (int z = 0; z < context.block.temporal_size; z++)
                     load_windowed_block<T>(
@@ -432,55 +526,27 @@ void process_temporal_scalar(unsigned int thread_id, int plane, DFTPlaneBytes sr
                     );
             }
 
-            context.fft.backend->submit_r2c(
+            auto forward = context.fft.backend->submit_r2c(
                 context.fft.forward,
                 neo_dfttest::fft::R2CBatch{
-                    neo_dfttest::fft::RealBatchView{dftr_base, real_stride, neo_dfttest::fft::MemoryDomain::host},
-                    neo_dfttest::fft::ComplexBatchView{dftc_base, complex_stride, neo_dfttest::fft::MemoryDomain::host},
+                    neo_dfttest::fft::RealBatchView{active_dftr, real_stride, neo_dfttest::fft::MemoryDomain::host},
+                    neo_dfttest::fft::ComplexBatchView{active_dftc, complex_stride, neo_dfttest::fft::MemoryDomain::host},
                     batch.count,
                 }
-            ).wait();
+            );
 
-            for (int index = 0; index < batch.count; ++index) {
-                auto* dftc = dft_complex_batch_data(dftc_base, complex_stride, index);
-                auto* dftc2 = dft_complex_batch_data(dftc2_base, complex_stride, index);
-                if (context.block.zero_mean)
-                    remove_mean(
-                        DFTMutableFloatSpan{complex_float_data(dftc), context.derived.coefficient_count},
-                        DFTConstFloatSpan{complex_float_data(context.coefficients.window_dft.data()), context.derived.coefficient_count},
-                        DFTMutableFloatSpan{complex_float_data(dftc2), context.derived.coefficient_count}
-                    );
-
-                context.filter_coefficients(make_filter_input(dftc, context));
-
-                if (context.block.zero_mean)
-                    add_mean(
-                        DFTMutableFloatSpan{complex_float_data(dftc), context.derived.coefficient_count},
-                        DFTConstFloatSpan{complex_float_data(dftc2), context.derived.coefficient_count}
-                    );
+            if (pending) {
+                consume_pending(*pending);
             }
-
-            context.fft.backend->submit_c2r(
-                context.fft.inverse,
-                neo_dfttest::fft::C2RBatch{
-                    neo_dfttest::fft::ComplexBatchView{dftc_base, complex_stride, neo_dfttest::fft::MemoryDomain::host},
-                    neo_dfttest::fft::RealBatchView{dftr_base, real_stride, neo_dfttest::fft::MemoryDomain::host},
-                    batch.count,
-                }
-            ).wait();
-
-            for (int index = 0; index < batch.count; ++index) {
-                float* dftr = dft_real_batch_data(dftr_base, real_stride, index);
-                const int block_x = batch.x_offsets[static_cast<std::size_t>(index)];
-                if (context.derived.transform_type & 1) // spatial overlapping
-                    accumulate_overlap(dftr + pos * context.derived.block_area, context.coefficients.window.data() + pos * context.derived.block_area, ebuff + y * ebpStride + block_x, context.block.spatial_size, ebpStride);
-                else
-                    ebuff[(y + context.derived.spatial_center) * ebpStride + block_x + context.derived.spatial_center] = dftr[pos * context.derived.block_area + context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center] * context.coefficients.window.data()[pos * context.derived.block_area + context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center];
-            }
+            pending.emplace(PendingTemporalBatch{batch, y, active_slot, std::move(forward)});
+            active_slot = 1 - active_slot;
         }
 
         for (int q = 0; q < context.block.temporal_size; q++)
             srcp[q] += srcStride * context.derived.step;
+    }
+    if (pending) {
+        consume_pending(*pending);
     }
 
     int dstWidth = context.planes.width[plane];

@@ -161,6 +161,7 @@ inline int dft_scratch_complex_stride(const DFTDerivedGeometry& derived) noexcep
 }
 
 constexpr int kMaxDftFftBatchSlots = 16;
+constexpr int kDftFftPipelineSlots = 2;
 
 struct DFTBlockBatch {
     std::array<int, kMaxDftFftBatchSlots> x_offsets {};
@@ -170,6 +171,10 @@ struct DFTBlockBatch {
 inline int dft_fft_batch_capacity(const DFTBlockSettings& block, int backend_max_batch_size) noexcept {
     const int backend_limit = std::max(1, backend_max_batch_size);
     return std::min({std::max(1, block.worker_threads), kMaxDftFftBatchSlots, backend_limit});
+}
+
+inline int dft_fft_scratch_slots(const DFTBlockSettings& block, int backend_max_batch_size) noexcept {
+    return dft_fft_batch_capacity(block, backend_max_batch_size) * kDftFftPipelineSlots;
 }
 
 inline float* dft_real_batch_data(float* base, int stride, int index) noexcept {
