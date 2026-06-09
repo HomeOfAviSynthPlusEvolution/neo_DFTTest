@@ -2,11 +2,15 @@
 #define DFT_COMMON_H
 
 #include <cstdint>
+#include <cstddef>
 #include <algorithm>
 #include <memory>
 #include <string>
 #include <vector>
 #include <random>
+#include <cstdlib>
+#include <cstring>
+#include <string.h>
 
 #ifdef HAS_EXECUTION
   #include <execution>
@@ -16,11 +20,26 @@
   #undef ENABLE_PAR
 #endif
 
-#include <VSHelper.h>
 #include "fftwlite.h"
 
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L
+#define VS_RESTRICT restrict
+#elif defined(__cplusplus) || defined(_MSC_VER)
+#define VS_RESTRICT __restrict
+#else
+#define VS_RESTRICT
+#endif
+
+#ifndef FRAME_ALIGN
+#define FRAME_ALIGN 64
+#endif
+
 #ifndef _WIN32
-  #define _aligned_malloc(a,b) aligned_alloc(b,a)
+  inline void* dfttest_aligned_malloc(std::size_t size, std::size_t alignment) {
+      void* ptr = nullptr;
+      return posix_memalign(&ptr, alignment, size) == 0 ? ptr : nullptr;
+  }
+  #define _aligned_malloc(a,b) dfttest_aligned_malloc((a),(b))
   #define _aligned_free free
 #endif
 

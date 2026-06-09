@@ -1,20 +1,19 @@
-cmake_minimum_required (VERSION 3.5)
+cmake_minimum_required (VERSION 3.24)
 project (neo_dfttest CXX)
 add_library(neo-dfttest SHARED
-  main.cpp
+  src/plugin/plugin_entry.cpp
+  src/plugin/dfttest_filter.cpp
+  src/plugin/dfttest_filter.hpp
   src/version.rc
-  src/vectorclass/instrset_detect.cpp
   src/core.cpp
   src/core.h
-  src/core_AVX2.cpp
   src/core_C.cpp
-  src/core_SSE2.cpp
   src/core_hwy.cpp
   src/dft_common.h
+  src/engine/dfttest_engine_impl.hpp
   src/fftwlite.h
-  src/neo_dfttest.hpp
 )
-set_property(TARGET neo-dfttest PROPERTY CXX_STANDARD 17)
+set_property(TARGET neo-dfttest PROPERTY CXX_STANDARD 23)
 
 add_executable(neo-dfttest_avs_frame_dump
   tests/tools/avs_frame_dump.cpp
@@ -26,8 +25,8 @@ if (NOT WIN32)
   target_link_libraries(neo-dfttest_avs_frame_dump dl)
 endif()
 
-option(ENABLE_PAR "Enable C++17 Parallel Execution" ON)
-add_compile_definitions(VS_TARGET_CPU_X86 _CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_DEPRECATE)
+option(ENABLE_PAR "Enable C++17 Parallel Execution" OFF)
+target_compile_definitions(neo-dfttest PRIVATE _CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_DEPRECATE)
 
 include(FetchContent)
 FetchContent_Declare(
@@ -40,6 +39,15 @@ set(HWY_ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(HWY_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
 set(HWY_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(highway)
+
+set(DS_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(DS_BUILD_ACCEPTANCE_PLUGIN OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+  dualsynth2
+  GIT_REPOSITORY https://github.com/HomeOfAviSynthPlusEvolution/dualsynth2.git
+  GIT_TAG master
+)
+FetchContent_MakeAvailable(dualsynth2)
 
 find_package(Git REQUIRED)
 execute_process(
@@ -88,27 +96,14 @@ else()
 endif()
 
 include_directories(.)
-include_directories(include/dualsynth)
+include_directories(src)
 include_directories(${highway_SOURCE_DIR})
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-  set_source_files_properties(src/core_SSE2.cpp PROPERTIES COMPILE_FLAGS "/arch:SSE2")
-  set_source_files_properties(src/core_AVX2.cpp PROPERTIES COMPILE_FLAGS "/arch:AVX2")
-
   if (CMAKE_GENERATOR_TOOLSET MATCHES "v[0-9]*_xp")
     target_compile_definitions(neo-dfttest PRIVATE WINVER=0x502 _WIN32_WINNT=0x502)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zc:threadSafeInit-")
   endif()
-
-elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Intel")
-  set_source_files_properties(src/core_SSE2.cpp PROPERTIES COMPILE_FLAGS "/arch:SSE2")
-  set_source_files_properties(src/core_AVX2.cpp PROPERTIES COMPILE_FLAGS "/arch:AVX2")
-  target_link_libraries(neo-dfttest libmmds)
-
-else()
-  set_source_files_properties(src/core_SSE2.cpp PROPERTIES COMPILE_FLAGS "-msse2")
-  set_source_files_properties(src/core_AVX2.cpp PROPERTIES COMPILE_FLAGS "-mfma -mavx2")
-
 endif()
 
 include(CheckIncludeFileCXX)
@@ -129,6 +124,7 @@ if (NOT WIN32)
 endif()
 
 target_link_libraries(neo-dfttest hwy)
+target_link_libraries(neo-dfttest DualSynth::dualsynth)
 
 add_custom_command(
   TARGET neo-dfttest POST_BUILD

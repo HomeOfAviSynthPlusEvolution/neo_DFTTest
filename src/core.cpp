@@ -275,72 +275,9 @@ void selectFunctions(const unsigned ftype, const unsigned opt, DFTTestData * d) 
         d->func_1 = func_1_c<float>;
     }
 
-    if (opt == 8) { // opt-in highway through opt=8
+    if (opt == 0 || opt == 3 || opt == 8) {
         d->filterCoeffs = neo_dfttest::GetHighwayFilter(ftype, d->f0beta);
         neo_dfttest::GetHighwayFunc0(d);
         neo_dfttest::GetHighwayFunc1(d);
     }
-    #ifdef VS_TARGET_CPU_X86
-    else {
-        const int iset = instrset_detect();
-
-        if ((opt == 0 && iset >= 8) || opt == 3) {
-            if (ftype == 0) {
-                if (std::abs(d->f0beta - 1.0f) < 0.00005f)
-                    d->filterCoeffs = filter_avx2<0>;
-                else if (std::abs(d->f0beta - 0.5f) < 0.00005f)
-                    d->filterCoeffs = filter_avx2<6>;
-                else
-                    d->filterCoeffs = filter_avx2<5>;
-            } else if (ftype == 1) {
-                d->filterCoeffs = filter_avx2<1>;
-            } else if (ftype == 2) {
-                d->filterCoeffs = filter_avx2<2>;
-            } else if (ftype == 3) {
-                d->filterCoeffs = filter_avx2<3>;
-            } else {
-                d->filterCoeffs = filter_avx2<4>;
-            }
-
-            if (d->vi_bytesPerSample == 1) {
-                d->func_0 = func_0_avx2<uint8_t>;
-                d->func_1 = func_1_avx2<uint8_t>;
-            } else if (d->vi_bytesPerSample == 2) {
-                d->func_0 = func_0_avx2<uint16_t>;
-                d->func_1 = func_1_avx2<uint16_t>;
-            } else {
-                d->func_0 = func_0_avx2<float>;
-                d->func_1 = func_1_avx2<float>;
-            }
-        } else if ((opt == 0 && iset >= 2) || opt == 2) {
-            if (ftype == 0) {
-                if (std::abs(d->f0beta - 1.0f) < 0.00005f)
-                    d->filterCoeffs = filter_sse2<0>;
-                else if (std::abs(d->f0beta - 0.5f) < 0.00005f)
-                    d->filterCoeffs = filter_sse2<6>;
-                else
-                    d->filterCoeffs = filter_sse2<5>;
-            } else if (ftype == 1) {
-                d->filterCoeffs = filter_sse2<1>;
-            } else if (ftype == 2) {
-                d->filterCoeffs = filter_sse2<2>;
-            } else if (ftype == 3) {
-                d->filterCoeffs = filter_sse2<3>;
-            } else {
-                d->filterCoeffs = filter_sse2<4>;
-            }
-
-            if (d->vi_bytesPerSample == 1) {
-                d->func_0 = func_0_sse2<uint8_t>;
-                d->func_1 = func_1_sse2<uint8_t>;
-            } else if (d->vi_bytesPerSample == 2) {
-                d->func_0 = func_0_sse2<uint16_t>;
-                d->func_1 = func_1_sse2<uint16_t>;
-            } else {
-                d->func_0 = func_0_sse2<float>;
-                d->func_1 = func_1_sse2<float>;
-            }
-        }
-    }
-    #endif
 }

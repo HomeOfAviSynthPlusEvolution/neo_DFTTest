@@ -34,7 +34,7 @@ void Proc0(const T* _s0, const float* _s1, float* d, const int p0, const int p1,
 
     for (int u = 0; u < p1; u++) {
         for (int v = 0; v < p1; v += N) {
-            auto s1_vec = hn::Load(d_f, _s1 + v);
+            auto s1_vec = hn::LoadU(d_f, _s1 + v);
             decltype(s1_vec) s0_vec;
 
             if constexpr (std::is_same_v<T, uint8_t>) {
@@ -48,7 +48,7 @@ void Proc0(const T* _s0, const float* _s1, float* d, const int p0, const int p1,
                 s0_vec = hn::ConvertTo(d_f, hn::PromoteTo(d_u32_N, hn::LoadN(d_u16_N, reinterpret_cast<const uint16_t*>(_s0) + v, N)));
                 s0_vec = hn::Mul(s0_vec, divisor_v);
             } else { // float
-                s0_vec = hn::Load(d_f, reinterpret_cast<const float*>(_s0) + v);
+                s0_vec = hn::LoadU(d_f, reinterpret_cast<const float*>(_s0) + v);
                 s0_vec = hn::Mul(s0_vec, mul_255);
             }
             
@@ -70,9 +70,9 @@ inline void Proc1(const float* _s0, const float* _s1, float* _d, const int p0, c
 
     for (int u = 0; u < p0; u++) {
         for (size_t v = 0; v < p0; v += N) {
-            const auto s0_vec = hn::Load(d_f, _s0 + v);
-            const auto s1_vec = hn::Load(d_f, _s1 + v);
-            const auto d_vec = hn::Load(d_f, _d + v);
+            const auto s0_vec = hn::LoadU(d_f, _s0 + v);
+            const auto s1_vec = hn::LoadU(d_f, _s1 + v);
+            const auto d_vec = hn::LoadU(d_f, _d + v);
             hn::StoreU(hn::MulAdd(s0_vec, s1_vec, d_vec), d_f, _d + v);
         }
 
@@ -91,9 +91,9 @@ inline void Proc1Partial(const float* _s0, const float* _s1, float* _d, const in
     for (int u = 0; u < p0; u++) {
         size_t v = 0;
         for (; v + N <= static_cast<size_t>(p0); v += N) {
-            const auto s0_vec = hn::Load(d_f, _s0 + v);
-            const auto s1_vec = hn::Load(d_f, _s1 + v);
-            const auto d_vec = hn::Load(d_f, _d + v);
+            const auto s0_vec = hn::LoadU(d_f, _s0 + v);
+            const auto s1_vec = hn::LoadU(d_f, _s1 + v);
+            const auto d_vec = hn::LoadU(d_f, _d + v);
             hn::StoreU(hn::MulAdd(s0_vec, s1_vec, d_vec), d_f, _d + v);
         }
 
@@ -221,11 +221,11 @@ void Cast(const float * ebp, T * dstp, const int dstWidth, const int dstHeight, 
     for (int y = 0; y < dstHeight; y++) {
         int x = 0;
         for (; x + N <= dstWidth; x += N) { // Iterate aligned blocks
-            auto v = hn::Load(d_f, ebp + x);
+            auto v = hn::LoadU(d_f, ebp + x);
             
             if constexpr (std::is_same_v<T, float>) {
                 auto val = hn::Mul(v, hn::Set(d_f, 1.0f/255.0f));
-                hn::Store(val, d_f, reinterpret_cast<float*>(dstp) + x);
+                hn::StoreU(val, d_f, reinterpret_cast<float*>(dstp) + x);
             } else if constexpr (std::is_same_v<T, uint8_t>) {
                 auto v_rounded = hn::Add(v, hn::Set(d_f, 0.5f));
                 auto v_i32 = hn::ConvertTo(d_i32, v_rounded);
