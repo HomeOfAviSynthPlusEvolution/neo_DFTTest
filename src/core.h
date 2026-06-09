@@ -17,7 +17,7 @@ template<typename T> void process_temporal_scalar(unsigned int thread_id, int pl
 
 // Highway functions
 namespace neo_dfttest {
-    DFTKernelDispatch make_highway_dispatch(unsigned ftype, const DFTClipFormat& format, const DFTBlockSettings& block);
+    DFTKernelDispatch make_highway_dispatch(DFTFilterPlan filter_plan, const DFTClipFormat& format);
 }
 
 #endif

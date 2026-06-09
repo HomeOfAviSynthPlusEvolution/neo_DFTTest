@@ -86,6 +86,21 @@ struct DFTFilterInput {
     DFTConstFloatSpan sigmas2;
 };
 
+enum class DFTFilterKind {
+    wiener,
+    hard_threshold,
+    multiplier,
+    range_multiplier,
+    range_wiener,
+    wiener_power,
+    wiener_sqrt,
+};
+
+struct DFTFilterPlan {
+    DFTFilterKind kind {DFTFilterKind::wiener};
+    bool custom_f0_beta {false};
+};
+
 using DFTCopyPadFunction = void (*)(int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const DFTKernelContext& context) noexcept;
 using DFTFilterCoefficientsFunction = void (*)(DFTFilterInput input);
 using DFTProcessSpatialFunction = void (*)(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const DFTKernelContext& context);
@@ -217,6 +232,7 @@ struct DFTThreadScratch {
 struct DFTKernelDispatch {
     DFTCopyPadFunction copy_pad {nullptr};
     DFTFilterCoefficientsFunction filter_coefficients {nullptr};
+    DFTFilterPlan filter_plan;
     DFTProcessSpatialFunction process_spatial {nullptr};
     DFTProcessTemporalFunction process_temporal {nullptr};
 };
@@ -231,6 +247,7 @@ struct DFTKernelContext {
     const DFTCoefficientTables& coefficients;
     DFTThreadScratch& scratch;
     DFTFilterCoefficientsFunction filter_coefficients {nullptr};
+    DFTFilterPlan filter_plan;
 };
 
 struct DFTTestData {
@@ -255,7 +272,8 @@ inline DFTKernelContext make_kernel_context(const DFTTestData& state) noexcept {
         state.derived,
         state.coefficients,
         state.scratch,
-        state.kernels.filter_coefficients
+        state.kernels.filter_coefficients,
+        state.kernels.filter_plan
     };
 }
 
@@ -271,10 +289,10 @@ inline DFTFilterInput make_filter_input(
     neo_dfttest::fft::Complex* coefficients,
     const DFTKernelContext& context
 ) noexcept {
-    const float* pmins = context.derived.custom_f0_beta
+    const float* pmins = context.filter_plan.custom_f0_beta
         ? &context.block.f0_beta
         : context.coefficients.pmins.data();
-    const int pmins_size = context.derived.custom_f0_beta ? 1 : context.derived.coefficient_count;
+    const int pmins_size = context.filter_plan.custom_f0_beta ? 1 : context.derived.coefficient_count;
 
     return DFTFilterInput{
         DFTMutableFloatSpan{complex_float_data(coefficients), context.derived.coefficient_count},

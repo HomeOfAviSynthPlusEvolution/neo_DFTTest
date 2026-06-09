@@ -511,15 +511,25 @@ HWY_EXPORT_T(FilterHighway_Type6, FilterHighway<6>);
 
 using FilterFunc = void (*)(DFTFilterInput input);
 
-static FilterFunc select_highway_filter(unsigned ftype, float f0beta) {
-    if (ftype == 0) {
-        if (std::abs(f0beta - 1.0f) < 0.00005f) return HWY_DYNAMIC_POINTER(FilterHighway_Type0);
-        else if (std::abs(f0beta - 0.5f) < 0.00005f) return HWY_DYNAMIC_POINTER(FilterHighway_Type6);
-        else return HWY_DYNAMIC_POINTER(FilterHighway_Type5);
-    } else if (ftype == 1) return HWY_DYNAMIC_POINTER(FilterHighway_Type1);
-    else if (ftype == 2) return HWY_DYNAMIC_POINTER(FilterHighway_Type2);
-    else if (ftype == 3) return HWY_DYNAMIC_POINTER(FilterHighway_Type3);
-    else return HWY_DYNAMIC_POINTER(FilterHighway_Type4);
+static FilterFunc select_highway_filter(DFTFilterPlan filter_plan) {
+    switch (filter_plan.kind) {
+        case DFTFilterKind::wiener:
+            return HWY_DYNAMIC_POINTER(FilterHighway_Type0);
+        case DFTFilterKind::hard_threshold:
+            return HWY_DYNAMIC_POINTER(FilterHighway_Type1);
+        case DFTFilterKind::multiplier:
+            return HWY_DYNAMIC_POINTER(FilterHighway_Type2);
+        case DFTFilterKind::range_multiplier:
+            return HWY_DYNAMIC_POINTER(FilterHighway_Type3);
+        case DFTFilterKind::range_wiener:
+            return HWY_DYNAMIC_POINTER(FilterHighway_Type4);
+        case DFTFilterKind::wiener_power:
+            return HWY_DYNAMIC_POINTER(FilterHighway_Type5);
+        case DFTFilterKind::wiener_sqrt:
+            return HWY_DYNAMIC_POINTER(FilterHighway_Type6);
+    }
+
+    return HWY_DYNAMIC_POINTER(FilterHighway_Type0);
 }
 
 static DFTProcessSpatialFunction select_highway_spatial_processor(const DFTClipFormat& format) {
@@ -534,9 +544,10 @@ static DFTProcessTemporalFunction select_highway_temporal_processor(const DFTCli
     return HWY_DYNAMIC_POINTER(ProcessTemporal_f32);
 }
 
-DFTKernelDispatch make_highway_dispatch(unsigned ftype, const DFTClipFormat& format, const DFTBlockSettings& block) {
+DFTKernelDispatch make_highway_dispatch(DFTFilterPlan filter_plan, const DFTClipFormat& format) {
     DFTKernelDispatch kernels {};
-    kernels.filter_coefficients = select_highway_filter(ftype, block.f0_beta);
+    kernels.filter_coefficients = select_highway_filter(filter_plan);
+    kernels.filter_plan = filter_plan;
     kernels.process_spatial = select_highway_spatial_processor(format);
     kernels.process_temporal = select_highway_temporal_processor(format);
     return kernels;

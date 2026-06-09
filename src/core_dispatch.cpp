@@ -44,28 +44,50 @@ static void copyPad(int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, cons
         memcpy(dst.data + dstStrideBytes * y, dst.data + dstStrideBytes * w, dstWidth * sizeof(T));
 }
 
-static DFTFilterCoefficientsFunction select_scalar_filter(const unsigned ftype, const DFTBlockSettings& block) noexcept {
+static DFTFilterPlan make_filter_plan(const unsigned ftype, const DFTBlockSettings& block) noexcept {
     if (ftype == 0) {
         if (std::abs(block.f0_beta - 1.0f) < 0.00005f)
-            return filter_scalar<0>;
+            return DFTFilterPlan{DFTFilterKind::wiener, false};
         else if (std::abs(block.f0_beta - 0.5f) < 0.00005f)
-            return filter_scalar<6>;
+            return DFTFilterPlan{DFTFilterKind::wiener_sqrt, true};
         else
-            return filter_scalar<5>;
+            return DFTFilterPlan{DFTFilterKind::wiener_power, true};
     } else if (ftype == 1) {
-        return filter_scalar<1>;
+        return DFTFilterPlan{DFTFilterKind::hard_threshold, false};
     } else if (ftype == 2) {
-        return filter_scalar<2>;
+        return DFTFilterPlan{DFTFilterKind::multiplier, false};
     } else if (ftype == 3) {
-        return filter_scalar<3>;
+        return DFTFilterPlan{DFTFilterKind::range_multiplier, false};
     }
 
-    return filter_scalar<4>;
+    return DFTFilterPlan{DFTFilterKind::range_wiener, false};
 }
 
-static DFTKernelDispatch make_scalar_dispatch(const unsigned ftype, const DFTClipFormat& format, const DFTBlockSettings& block) noexcept {
+static DFTFilterCoefficientsFunction select_scalar_filter(const DFTFilterPlan filter_plan) noexcept {
+    switch (filter_plan.kind) {
+        case DFTFilterKind::wiener:
+            return filter_scalar<0>;
+        case DFTFilterKind::hard_threshold:
+            return filter_scalar<1>;
+        case DFTFilterKind::multiplier:
+            return filter_scalar<2>;
+        case DFTFilterKind::range_multiplier:
+            return filter_scalar<3>;
+        case DFTFilterKind::range_wiener:
+            return filter_scalar<4>;
+        case DFTFilterKind::wiener_power:
+            return filter_scalar<5>;
+        case DFTFilterKind::wiener_sqrt:
+            return filter_scalar<6>;
+    }
+
+    return filter_scalar<0>;
+}
+
+static DFTKernelDispatch make_scalar_dispatch(const DFTFilterPlan filter_plan, const DFTClipFormat& format) noexcept {
     DFTKernelDispatch kernels {};
-    kernels.filter_coefficients = select_scalar_filter(ftype, block);
+    kernels.filter_coefficients = select_scalar_filter(filter_plan);
+    kernels.filter_plan = filter_plan;
 
     if (format.bytes_per_sample == 1) {
         kernels.copy_pad = copyPad<uint8_t>;
@@ -85,11 +107,13 @@ static DFTKernelDispatch make_scalar_dispatch(const unsigned ftype, const DFTCli
 }
 
 DFTKernelDispatch selectFunctions(const unsigned ftype, const unsigned opt, const DFTClipFormat& format, const DFTBlockSettings& block) noexcept {
-    DFTKernelDispatch kernels = make_scalar_dispatch(ftype, format, block);
+    const DFTFilterPlan filter_plan = make_filter_plan(ftype, block);
+    DFTKernelDispatch kernels = make_scalar_dispatch(filter_plan, format);
 
     if (opt != 1) {
-        DFTKernelDispatch highway = neo_dfttest::make_highway_dispatch(ftype, format, block);
+        DFTKernelDispatch highway = neo_dfttest::make_highway_dispatch(filter_plan, format);
         kernels.filter_coefficients = highway.filter_coefficients;
+        kernels.filter_plan = highway.filter_plan;
         kernels.process_spatial = highway.process_spatial;
         kernels.process_temporal = highway.process_temporal;
     }
