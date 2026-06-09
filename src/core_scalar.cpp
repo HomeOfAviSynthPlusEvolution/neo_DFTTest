@@ -386,7 +386,7 @@ void process_spatial_scalar(unsigned int thread_id, int plane, DFTPlaneBytes src
             float* output_row = ebuff + ready.y * ebpStride;
             for (int index = 0; index < ready.batch.count; ++index) {
                 float* dftr = dft_real_batch_data(ready.real, ready.real_stride, index);
-                const int block_x = ready.batch.x_offsets[static_cast<std::size_t>(index)];
+                const int block_x = dft_block_job(ready.batch, index).x;
                 if (context.derived.transform_type & 1) // spatial overlapping
                     accumulate_overlap(dftr, context.coefficients.window.data, output_row + block_x, context.block.spatial_size, ebpStride);
                 else
@@ -474,7 +474,7 @@ void process_temporal_scalar(unsigned int thread_id, int plane, DFTPlaneBytes sr
 
             for (int index = 0; index < ready.batch.count; ++index) {
                 float* dftr = dft_real_batch_data(ready.real, ready.real_stride, index);
-                const int block_x = ready.batch.x_offsets[static_cast<std::size_t>(index)];
+                const int block_x = dft_block_job(ready.batch, index).x;
                 if (context.derived.transform_type & 1) // spatial overlapping
                     accumulate_overlap(dftr + pos * context.derived.block_area, context.coefficients.window.data + pos * context.derived.block_area, ebuff + ready.y * ebpStride + block_x, context.block.spatial_size, ebpStride);
                 else

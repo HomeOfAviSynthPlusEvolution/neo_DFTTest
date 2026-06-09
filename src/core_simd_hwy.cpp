@@ -405,7 +405,7 @@ void ProcessSpatialHighway(unsigned int thread_id, int plane, DFTPlaneBytes src,
             float* output_row = ebuff + ready.y * ebpStride;
             for (int index = 0; index < ready.batch.count; ++index) {
                 float* dftr = dft_real_batch_data(ready.real, ready.real_stride, index);
-                const int block_x = ready.batch.x_offsets[static_cast<std::size_t>(index)];
+                const int block_x = dft_block_job(ready.batch, index).x;
                 if (context.derived.transform_type & 1) { // spatial overlapping
                     using D_f = hn::ScalableTag<float>;
                     const size_t N_f = hn::Lanes(D_f()); // Get lane count for float
@@ -488,7 +488,7 @@ void ProcessTemporalHighway(unsigned int thread_id, int plane, DFTPlaneBytes src
 
             for (int index = 0; index < ready.batch.count; ++index) {
                 float* dftr = dft_real_batch_data(ready.real, ready.real_stride, index);
-                const int block_x = ready.batch.x_offsets[static_cast<std::size_t>(index)];
+                const int block_x = dft_block_job(ready.batch, index).x;
                 if (context.derived.transform_type & 1) { // spatial overlapping
                     using D_f = hn::ScalableTag<float>;
                     const size_t N_f = hn::Lanes(D_f());

@@ -46,7 +46,7 @@ public:
 
                 for (; batch.count < batch_capacity_ && x <= width_ - context_.block.spatial_size; ++batch.count, x += context_.derived.step) {
                     float* real_block = dft_real_batch_data(active_real, real_stride_, batch.count);
-                    batch.x_offsets[static_cast<std::size_t>(batch.count)] = x;
+                    batch.jobs[static_cast<std::size_t>(batch.count)] = DFTBlockJob{-1, y, x, 0};
                     load_block(y, x, real_block);
                 }
 

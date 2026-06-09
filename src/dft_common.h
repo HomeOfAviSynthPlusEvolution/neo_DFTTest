@@ -211,10 +211,21 @@ struct DFTBatchPolicy {
     int executor_preferred_batch_size {1};
 };
 
+struct DFTBlockJob {
+    int plane {-1};
+    int y {0};
+    int x {0};
+    int temporal_position {0};
+};
+
 struct DFTBlockBatch {
-    std::array<int, kMaxDftFftBatchSlots> x_offsets {};
+    std::array<DFTBlockJob, kMaxDftFftBatchSlots> jobs {};
     int count {0};
 };
+
+inline const DFTBlockJob& dft_block_job(const DFTBlockBatch& batch, const int index) noexcept {
+    return batch.jobs[static_cast<std::size_t>(index)];
+}
 
 inline DFTBatchPolicy make_cpu_dft_batch_policy(const DFTBlockSettings& block, const neo_dfttest::fft::BackendCapabilities& backend) noexcept {
     const int worker_threads = std::max(1, block.worker_threads);
