@@ -11,6 +11,7 @@ import tempfile
 from typing import Iterable
 
 _LOADED_VS_PLUGINS: set[str] = set()
+GOLDEN_SCHEMA = 2
 
 
 @dataclass(frozen=True)
@@ -289,8 +290,17 @@ def _result_record(case: dict, host: str, frame_number: int, sha256: str, metada
         "source": case["source"]["id"],
         "params": host_params(case, host),
         "sha256": sha256,
-        "metadata": metadata,
+        "metadata": _canonical_metadata(metadata),
     }
+
+
+def _canonical_metadata(metadata: dict) -> dict:
+    canonical = dict(metadata)
+    canonical["planes"] = [
+        {key: value for key, value in plane.items() if key != "stride"}
+        for plane in metadata.get("planes", [])
+    ]
+    return canonical
 
 
 def run_cases(cases: list[dict], hosts: list[str], plugin_path: Path, avs_dump: Path | None) -> list[dict]:
@@ -306,14 +316,14 @@ def run_cases(cases: list[dict], hosts: list[str], plugin_path: Path, avs_dump: 
 
 
 def write_golden(path: Path, results: list[dict]) -> None:
-    payload = {"schema": 1, "results": results}
+    payload = {"schema": GOLDEN_SCHEMA, "results": results}
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def verify_golden(path: Path, results: list[dict]) -> None:
     expected = json.loads(path.read_text(encoding="utf-8"))
-    actual = {"schema": 1, "results": results}
+    actual = {"schema": GOLDEN_SCHEMA, "results": results}
     if actual != expected:
         raise AssertionError(f"baseline mismatch: {path}")
 

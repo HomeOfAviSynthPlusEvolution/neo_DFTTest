@@ -22,8 +22,7 @@
           {
             "height": 48,
             "name": "Y",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           }
         ],
         "width": 64
@@ -58,8 +57,7 @@
           {
             "height": 48,
             "name": "Y",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           }
         ],
         "width": 64
@@ -94,8 +92,7 @@
           {
             "height": 48,
             "name": "Y",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           }
         ],
         "width": 64
@@ -122,8 +119,7 @@
           {
             "height": 48,
             "name": "Y",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           }
         ],
         "width": 64
@@ -150,8 +146,7 @@
           {
             "height": 48,
             "name": "Y",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           }
         ],
         "width": 64
@@ -178,8 +173,7 @@
           {
             "height": 48,
             "name": "Y",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           }
         ],
         "width": 64
@@ -214,8 +208,7 @@
           {
             "height": 48,
             "name": "Y",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           }
         ],
         "width": 64
@@ -253,8 +246,7 @@
           {
             "height": 48,
             "name": "Y",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           }
         ],
         "width": 64
@@ -292,8 +284,7 @@
           {
             "height": 48,
             "name": "Y",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           }
         ],
         "width": 64
@@ -323,8 +314,7 @@
           {
             "height": 48,
             "name": "Y",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           }
         ],
         "width": 64
@@ -354,8 +344,7 @@
           {
             "height": 48,
             "name": "Y",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           }
         ],
         "width": 64
@@ -385,8 +374,7 @@
           {
             "height": 48,
             "name": "Y",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           }
         ],
         "width": 64
@@ -424,8 +412,7 @@
           {
             "height": 48,
             "name": "Y",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           }
         ],
         "width": 64
@@ -464,8 +451,7 @@
           {
             "height": 48,
             "name": "Y",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           }
         ],
         "width": 64
@@ -504,8 +490,7 @@
           {
             "height": 48,
             "name": "Y",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           }
         ],
         "width": 64
@@ -536,8 +521,7 @@
           {
             "height": 48,
             "name": "Y",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           }
         ],
         "width": 64
@@ -568,8 +552,7 @@
           {
             "height": 48,
             "name": "Y",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           }
         ],
         "width": 64
@@ -600,8 +583,7 @@
           {
             "height": 48,
             "name": "Y",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           }
         ],
         "width": 64
@@ -640,20 +622,17 @@
           {
             "height": 48,
             "name": "Y",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           },
           {
             "height": 24,
             "name": "U",
-            "row_bytes": 32,
-            "stride": 32
+            "row_bytes": 32
           },
           {
             "height": 24,
             "name": "V",
-            "row_bytes": 32,
-            "stride": 32
+            "row_bytes": 32
           }
         ],
         "width": 64
@@ -688,20 +667,17 @@
           {
             "height": 48,
             "name": "Y",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           },
           {
             "height": 24,
             "name": "U",
-            "row_bytes": 32,
-            "stride": 32
+            "row_bytes": 32
           },
           {
             "height": 24,
             "name": "V",
-            "row_bytes": 32,
-            "stride": 32
+            "row_bytes": 32
           }
         ],
         "width": 64
@@ -736,20 +712,17 @@
           {
             "height": 48,
             "name": "Y",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           },
           {
             "height": 24,
             "name": "U",
-            "row_bytes": 32,
-            "stride": 32
+            "row_bytes": 32
           },
           {
             "height": 24,
             "name": "V",
-            "row_bytes": 32,
-            "stride": 32
+            "row_bytes": 32
           }
         ],
         "width": 64
@@ -776,20 +749,17 @@
           {
             "height": 48,
             "name": "Y",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           },
           {
             "height": 24,
             "name": "U",
-            "row_bytes": 32,
-            "stride": 64
+            "row_bytes": 32
           },
           {
             "height": 24,
             "name": "V",
-            "row_bytes": 32,
-            "stride": 64
+            "row_bytes": 32
           }
         ],
         "width": 64
@@ -816,20 +786,17 @@
           {
             "height": 48,
             "name": "Y",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           },
           {
             "height": 24,
             "name": "U",
-            "row_bytes": 32,
-            "stride": 64
+            "row_bytes": 32
           },
           {
             "height": 24,
             "name": "V",
-            "row_bytes": 32,
-            "stride": 64
+            "row_bytes": 32
           }
         ],
         "width": 64
@@ -856,20 +823,17 @@
           {
             "height": 48,
             "name": "Y",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           },
           {
             "height": 24,
             "name": "U",
-            "row_bytes": 32,
-            "stride": 64
+            "row_bytes": 32
           },
           {
             "height": 24,
             "name": "V",
-            "row_bytes": 32,
-            "stride": 64
+            "row_bytes": 32
           }
         ],
         "width": 64
@@ -904,20 +868,17 @@
           {
             "height": 48,
             "name": "Y",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           },
           {
             "height": 48,
             "name": "U",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           },
           {
             "height": 48,
             "name": "V",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           }
         ],
         "width": 64
@@ -952,20 +913,17 @@
           {
             "height": 48,
             "name": "Y",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           },
           {
             "height": 48,
             "name": "U",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           },
           {
             "height": 48,
             "name": "V",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           }
         ],
         "width": 64
@@ -1000,20 +958,17 @@
           {
             "height": 48,
             "name": "Y",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           },
           {
             "height": 48,
             "name": "U",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           },
           {
             "height": 48,
             "name": "V",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           }
         ],
         "width": 64
@@ -1040,20 +995,17 @@
           {
             "height": 48,
             "name": "Y",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           },
           {
             "height": 48,
             "name": "U",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           },
           {
             "height": 48,
             "name": "V",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           }
         ],
         "width": 64
@@ -1080,20 +1032,17 @@
           {
             "height": 48,
             "name": "Y",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           },
           {
             "height": 48,
             "name": "U",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           },
           {
             "height": 48,
             "name": "V",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           }
         ],
         "width": 64
@@ -1120,20 +1069,17 @@
           {
             "height": 48,
             "name": "Y",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           },
           {
             "height": 48,
             "name": "U",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           },
           {
             "height": 48,
             "name": "V",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           }
         ],
         "width": 64
@@ -1168,20 +1114,17 @@
           {
             "height": 48,
             "name": "R",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           },
           {
             "height": 48,
             "name": "G",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           },
           {
             "height": 48,
             "name": "B",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           }
         ],
         "width": 64
@@ -1216,20 +1159,17 @@
           {
             "height": 48,
             "name": "R",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           },
           {
             "height": 48,
             "name": "G",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           },
           {
             "height": 48,
             "name": "B",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           }
         ],
         "width": 64
@@ -1264,20 +1204,17 @@
           {
             "height": 48,
             "name": "R",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           },
           {
             "height": 48,
             "name": "G",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           },
           {
             "height": 48,
             "name": "B",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           }
         ],
         "width": 64
@@ -1304,20 +1241,17 @@
           {
             "height": 48,
             "name": "R",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           },
           {
             "height": 48,
             "name": "G",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           },
           {
             "height": 48,
             "name": "B",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           }
         ],
         "width": 64
@@ -1344,20 +1278,17 @@
           {
             "height": 48,
             "name": "R",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           },
           {
             "height": 48,
             "name": "G",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           },
           {
             "height": 48,
             "name": "B",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           }
         ],
         "width": 64
@@ -1384,20 +1315,17 @@
           {
             "height": 48,
             "name": "R",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           },
           {
             "height": 48,
             "name": "G",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           },
           {
             "height": 48,
             "name": "B",
-            "row_bytes": 64,
-            "stride": 64
+            "row_bytes": 64
           }
         ],
         "width": 64
@@ -1411,5 +1339,5 @@
       "tier": "smoke"
     }
   ],
-  "schema": 1
+  "schema": 2
 }
