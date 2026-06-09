@@ -207,6 +207,7 @@ struct DFTThreadScratchSlot {
     neo_dfttest::AlignedBuffer<float> dftr;
     neo_dfttest::AlignedBuffer<neo_dfttest::fft::Complex> dftc;
     neo_dfttest::AlignedBuffer<neo_dfttest::fft::Complex> dftc2;
+    int fft_scratch_slots {0};
 };
 
 struct DFTThreadScratch {

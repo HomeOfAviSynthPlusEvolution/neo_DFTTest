@@ -28,6 +28,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -56,6 +57,19 @@ std::unique_ptr<fft::Backend> create_fft_backend(std::string_view name) {
     return fft::create_pocketfft_backend();
   }
   throw std::runtime_error("unsupported FFT backend");
+}
+
+int logical_cpu_threads() noexcept {
+  const unsigned int hardware_threads = std::thread::hardware_concurrency();
+  return hardware_threads > 0 ? static_cast<int>(hardware_threads) : 4;
+}
+
+int conservative_cpu_budget() noexcept {
+  return std::clamp(logical_cpu_threads() / 2, 1, 16);
+}
+
+int auto_worker_threads(int host_concurrency) noexcept {
+  return std::clamp(conservative_cpu_budget() / std::max(1, host_concurrency), 1, 16);
 }
 
 } // namespace
@@ -98,6 +112,7 @@ public:
     fft_ = create_fft_backend(config_.fft_backend);
     fft_->load();
     state_.fft.backend = fft_.get();
+    apply_thread_policy(1);
     if (config_.fft_threads > 1 && state_.fft.backend->has_threading()) {
       state_.fft.backend->set_thread_count(config_.fft_threads);
     }
@@ -171,6 +186,7 @@ public:
     if (cachehints == CACHE_INFORM_NUM_THREADS) {
       const int n_threads = std::max(frame_range, 0);
       std::lock_guard<std::mutex> lock(thread_check_mutex_);
+      apply_thread_policy(std::max(n_threads, 1));
       if (n_threads > static_cast<int>(thread_id_store_.size())) {
         resize_thread_storage_unlocked(n_threads);
       }
@@ -202,6 +218,22 @@ private:
     Impl& owner_;
     unsigned int id_;
   };
+
+  void apply_thread_policy(int host_concurrency) {
+    if (config_.fft_threads_auto) {
+      config_.fft_threads = 1;
+    }
+
+    if (config_.worker_threads_auto) {
+      state_.block.worker_threads =
+        (!config_.fft_threads_auto && config_.fft_threads > 1)
+          ? 1
+          : auto_worker_threads(host_concurrency);
+    }
+
+    state_.block.worker_threads = std::clamp(state_.block.worker_threads, 1, 16);
+    config_.fft_threads = std::max(config_.fft_threads, 1);
+  }
 
   void configure_geometry() {
     state_.derived.block_area = state_.block.spatial_size * state_.block.spatial_size;
@@ -649,15 +681,28 @@ private:
 
   void ensure_thread_buffers_unlocked(unsigned int thread_id) {
     DFTThreadScratchSlot& slot = state_.scratch.slots[thread_id];
-    if (slot.ebuff) {
+    const int scratch_slots = dft_fft_scratch_slots(state_.block, state_.fft.backend->capabilities().max_batch_size);
+    if (!slot.ebuff) {
+      slot.ebuff = detail::make_aligned_buffer<float>(
+        static_cast<std::size_t>(state_.planes.e_stride[0]) * state_.planes.pad_height[0],
+        "thread ebuff"
+      );
+
+      if (state_.block.dither_mode > 0) {
+        slot.dither_buffer = detail::make_aligned_buffer<float>(
+          static_cast<std::size_t>(2) * state_.format.width,
+          "dither buffer"
+        );
+        if (state_.block.dither_mode > 1) {
+          slot.rng = std::make_unique<std::mt19937>(std::random_device{}());
+        }
+      }
+    }
+
+    if (slot.fft_scratch_slots >= scratch_slots) {
       return;
     }
 
-    slot.ebuff = detail::make_aligned_buffer<float>(
-      static_cast<std::size_t>(state_.planes.e_stride[0]) * state_.planes.pad_height[0],
-      "thread ebuff"
-    );
-    const int scratch_slots = dft_fft_scratch_slots(state_.block, state_.fft.backend->capabilities().max_batch_size);
     slot.dftr = detail::make_aligned_buffer<float>(
       static_cast<std::size_t>(dft_scratch_real_stride(state_.derived)) * scratch_slots,
       "thread dftr"
@@ -670,16 +715,7 @@ private:
       static_cast<std::size_t>(dft_scratch_complex_stride(state_.derived)) * scratch_slots,
       "thread dftc2"
     );
-
-    if (state_.block.dither_mode > 0) {
-      slot.dither_buffer = detail::make_aligned_buffer<float>(
-        static_cast<std::size_t>(2) * state_.format.width,
-        "dither buffer"
-      );
-      if (state_.block.dither_mode > 1) {
-        slot.rng = std::make_unique<std::mt19937>(std::random_device{}());
-      }
-    }
+    slot.fft_scratch_slots = scratch_slots;
   }
 
   ds::VideoInputInfo input_{};

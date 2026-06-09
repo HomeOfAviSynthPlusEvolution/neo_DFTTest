@@ -98,12 +98,13 @@ DfttestConfig DfttestConfig::read(const ds::ParamValues& values, DFTTestData& st
   state.block.temporal_beta = read_float(values, "tbeta", state.block.temporal_beta);
   state.block.zero_mean = read_bool(values, "zmean", state.block.zero_mean);
   state.block.f0_beta = read_float(values, "f0beta", state.block.f0_beta);
-  state.block.worker_threads = read_int(values, "threads", state.block.worker_threads);
+  const int requested_worker_threads = read_int(values, "threads", 0);
+  config.worker_threads_auto = !has_param(values, "threads") || requested_worker_threads <= 0;
+  state.block.worker_threads = config.worker_threads_auto ? 1 : requested_worker_threads;
   state.block.dither_mode = read_int(values, "dither", state.block.dither_mode);
-  config.fft_threads = read_int(values, "fft_threads", config.fft_threads);
-  if (config.fft_threads < 1) {
-    config.fft_threads = 1;
-  }
+  const int requested_fft_threads = read_int(values, "fft_threads", 0);
+  config.fft_threads_auto = !has_param(values, "fft_threads") || requested_fft_threads <= 0;
+  config.fft_threads = config.fft_threads_auto ? 1 : requested_fft_threads;
 
   if (config.fft_backend != "fftw" && config.fft_backend != "pocketfft") {
     throw std::runtime_error("fft_backend must be 'fftw' or 'pocketfft'");
@@ -124,9 +125,6 @@ DfttestConfig DfttestConfig::read(const ds::ParamValues& values, DFTTestData& st
   config.sst = read_float_array(values, "sst");
   config.ssystem = read_int(values, "ssystem", 0);
 
-  if (state.block.worker_threads <= 0) {
-    state.block.worker_threads = 4;
-  }
   if (state.block.worker_threads > 16) {
     state.block.worker_threads = 16;
   }
