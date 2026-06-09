@@ -428,6 +428,61 @@
         "threads": 1,
         "fft_threads": 1
       }
+    },
+    {
+      "id": "compat_mp4_yuv420p8_spatial_threads4",
+      "tier": "compat",
+      "source": {
+        "id": "mp4_yuv420p8_1280x720_10f",
+        "type": "ffms2",
+        "path": "../sources/14946398.mp4"
+      },
+      "frames": [
+        0,
+        5,
+        9
+      ],
+      "params": {
+        "tbsize": 1,
+        "sbsize": 16,
+        "sosize": 8,
+        "ftype": 2,
+        "sigma": 4.0,
+        "opt": 2,
+        "threads": 4,
+        "fft_threads": 1
+      }
+    },
+    {
+      "id": "compat_y8_temporal_threads4",
+      "tier": "compat",
+      "source": {
+        "id": "blank_y8_64x48_9f",
+        "type": "blank",
+        "width": 64,
+        "height": 48,
+        "length": 9,
+        "format": "GRAY8",
+        "avs_format": "Y8",
+        "color": [
+          64
+        ],
+        "avs_color": 64,
+        "avs_color_yuv": "$404040"
+      },
+      "frames": [
+        0,
+        4,
+        8
+      ],
+      "params": {
+        "tbsize": 3,
+        "sbsize": 8,
+        "sosize": 4,
+        "opt": 2,
+        "threads": 4,
+        "fft_threads": 1
+      }
     }
   ]
 }

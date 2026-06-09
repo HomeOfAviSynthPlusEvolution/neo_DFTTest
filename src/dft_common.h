@@ -13,14 +13,6 @@
 #include <cstring>
 #include <string.h>
 
-#ifdef HAS_EXECUTION
-  #include <execution>
-#endif
-
-#ifndef __cpp_lib_execution
-  #undef ENABLE_PAR
-#endif
-
 #include "fft/fft_backend.hpp"
 #include "memory/aligned_buffer.hpp"
 
@@ -141,7 +133,6 @@ struct DFTPlaneGeometry {
     std::array<int, 4> pad_block_size {};
     std::array<int, 4> e_stride {};
     std::array<int, 4> e_height {};
-    std::array<int, 4> e_batch_size {};
 };
 
 struct DFTSampleScale {
@@ -160,6 +151,34 @@ struct DFTDerivedGeometry {
     int step {1};
     bool custom_f0_beta {false};
 };
+
+inline int dft_scratch_real_stride(const DFTDerivedGeometry& derived) noexcept {
+    return ((derived.block_volume + 7) | 15) + 1;
+}
+
+inline int dft_scratch_complex_stride(const DFTDerivedGeometry& derived) noexcept {
+    return ((derived.complex_count + 7) | 15) + 1;
+}
+
+constexpr int kMaxDftFftBatchSlots = 16;
+
+struct DFTBlockBatch {
+    std::array<int, kMaxDftFftBatchSlots> x_offsets {};
+    int count {0};
+};
+
+inline int dft_fft_batch_capacity(const DFTBlockSettings& block, int backend_max_batch_size) noexcept {
+    const int backend_limit = std::max(1, backend_max_batch_size);
+    return std::min({std::max(1, block.worker_threads), kMaxDftFftBatchSlots, backend_limit});
+}
+
+inline float* dft_real_batch_data(float* base, int stride, int index) noexcept {
+    return base + stride * index;
+}
+
+inline neo_dfttest::fft::Complex* dft_complex_batch_data(neo_dfttest::fft::Complex* base, int stride, int index) noexcept {
+    return base + stride * index;
+}
 
 struct DFTCoefficientTables {
     neo_dfttest::AlignedBuffer<float> window;

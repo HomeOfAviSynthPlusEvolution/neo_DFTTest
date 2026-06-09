@@ -33,7 +33,6 @@ if (NOT WIN32)
   target_link_libraries(neo-dfttest_avs_frame_dump dl)
 endif()
 
-option(ENABLE_PAR "Enable C++17 Parallel Execution" OFF)
 target_compile_definitions(neo-dfttest PRIVATE _CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_DEPRECATE)
 
 include(FetchContent)
@@ -111,19 +110,6 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
   if (CMAKE_GENERATOR_TOOLSET MATCHES "v[0-9]*_xp")
     target_compile_definitions(neo-dfttest PRIVATE WINVER=0x502 _WIN32_WINNT=0x502)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Zc:threadSafeInit-")
-  endif()
-endif()
-
-include(CheckIncludeFileCXX)
-CHECK_INCLUDE_FILE_CXX(execution HAS_EXECUTION)
-if(HAS_EXECUTION)
-  add_definitions(-DHAS_EXECUTION)
-endif()
-if(ENABLE_PAR AND HAS_EXECUTION)
-  add_definitions(-DENABLE_PAR)
-
-  if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    target_link_libraries(neo-dfttest tbb)
   endif()
 endif()
 

@@ -89,10 +89,6 @@ public:
     config_.validate(input, state_);
     config_.configure_planes(values, state_);
 
-#ifndef ENABLE_PAR
-    state_.block.worker_threads = 1;
-#endif
-
     state_.kernels = selectFunctions(
       static_cast<unsigned>(config_.ftype),
       static_cast<unsigned>(config_.opt),
@@ -229,8 +225,6 @@ private:
         ((state_.planes.pad_width[plane] * state_.format.bytes_per_sample - 1) | (FRAME_ALIGN - 1)) + 1;
       state_.planes.pad_block_size[plane] = state_.planes.pad_stride[plane] * state_.planes.pad_height[plane];
       state_.planes.e_stride[plane] = ((state_.planes.pad_width[plane] * static_cast<int>(sizeof(float)) - 1) | (FRAME_ALIGN - 1)) + 1;
-      state_.planes.e_batch_size[plane] =
-        ((state_.planes.e_height[plane] - 1) / state_.block.worker_threads / state_.derived.step + 1) * state_.derived.step;
     }
   }
 
@@ -665,15 +659,15 @@ private:
       "thread ebuff"
     );
     slot.dftr = detail::make_aligned_buffer<float>(
-      static_cast<std::size_t>(((state_.derived.block_volume + 7) | 15) + 1) * state_.block.worker_threads,
+      static_cast<std::size_t>(dft_scratch_real_stride(state_.derived)) * state_.block.worker_threads,
       "thread dftr"
     );
     slot.dftc = detail::make_aligned_buffer<fft::Complex>(
-      static_cast<std::size_t>(((state_.derived.complex_count + 7) | 15) + 1) * state_.block.worker_threads,
+      static_cast<std::size_t>(dft_scratch_complex_stride(state_.derived)) * state_.block.worker_threads,
       "thread dftc"
     );
     slot.dftc2 = detail::make_aligned_buffer<fft::Complex>(
-      static_cast<std::size_t>(((state_.derived.complex_count + 7) | 15) + 1) * state_.block.worker_threads,
+      static_cast<std::size_t>(dft_scratch_complex_stride(state_.derived)) * state_.block.worker_threads,
       "thread dftc2"
     );
 
