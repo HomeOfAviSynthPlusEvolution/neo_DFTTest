@@ -254,6 +254,48 @@ inline neo_dfttest::fft::Complex* dft_complex_batch_data(neo_dfttest::fft::Compl
     return base + stride * index;
 }
 
+struct DFTMutableRealBatchView {
+    float* data {nullptr};
+    int stride_elements {0};
+    int count {0};
+    neo_dfttest::fft::MemoryDomain domain {neo_dfttest::fft::MemoryDomain::host};
+
+    [[nodiscard]] float* block(const int index) const noexcept {
+        return dft_real_batch_data(data, stride_elements, index);
+    }
+
+    [[nodiscard]] neo_dfttest::fft::RealBatchView fft_view() const noexcept {
+        return neo_dfttest::fft::RealBatchView{data, stride_elements, domain};
+    }
+};
+
+struct DFTMutableComplexBatchView {
+    neo_dfttest::fft::Complex* data {nullptr};
+    int stride_elements {0};
+    int count {0};
+    neo_dfttest::fft::MemoryDomain domain {neo_dfttest::fft::MemoryDomain::host};
+
+    [[nodiscard]] neo_dfttest::fft::Complex* block(const int index) const noexcept {
+        return dft_complex_batch_data(data, stride_elements, index);
+    }
+
+    [[nodiscard]] neo_dfttest::fft::ComplexBatchView fft_view() const noexcept {
+        return neo_dfttest::fft::ComplexBatchView{data, stride_elements, domain};
+    }
+};
+
+inline DFTMutableRealBatchView dft_host_real_batch_view(float* data, const int stride, const int count) noexcept {
+    return DFTMutableRealBatchView{data, stride, count, neo_dfttest::fft::MemoryDomain::host};
+}
+
+inline DFTMutableComplexBatchView dft_host_complex_batch_view(
+    neo_dfttest::fft::Complex* data,
+    const int stride,
+    const int count
+) noexcept {
+    return DFTMutableComplexBatchView{data, stride, count, neo_dfttest::fft::MemoryDomain::host};
+}
+
 struct DFTCoefficientTables {
     neo_dfttest::AlignedBuffer<float> window;
     neo_dfttest::AlignedBuffer<float> sigmas;

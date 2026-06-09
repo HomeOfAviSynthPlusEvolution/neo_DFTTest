@@ -356,8 +356,8 @@ void process_spatial_scalar(unsigned int thread_id, int plane, DFTPlaneBytes src
         },
         [&](neo_dfttest::DFTCompletedBatch ready) {
             for (int index = 0; index < ready.batch.count; ++index) {
-                auto* dftc = dft_complex_batch_data(ready.coefficients, ready.complex_stride, index);
-                auto* dftc2 = dft_complex_batch_data(ready.removed_mean, ready.complex_stride, index);
+                auto* dftc = ready.coefficients.block(index);
+                auto* dftc2 = ready.removed_mean.block(index);
                 if (context.block.zero_mean)
                     remove_mean(
                         DFTMutableFloatSpan{complex_float_data(dftc), context.derived.coefficient_count},
@@ -377,15 +377,15 @@ void process_spatial_scalar(unsigned int thread_id, int plane, DFTPlaneBytes src
             context.fft.backend->submit_c2r(
                 context.fft.inverse,
                 neo_dfttest::fft::C2RBatch{
-                    neo_dfttest::fft::ComplexBatchView{ready.coefficients, ready.complex_stride, neo_dfttest::fft::MemoryDomain::host},
-                    neo_dfttest::fft::RealBatchView{ready.real, ready.real_stride, neo_dfttest::fft::MemoryDomain::host},
+                    ready.coefficients.fft_view(),
+                    ready.real.fft_view(),
                     ready.batch.count,
                 }
             ).wait();
 
             float* output_row = ebuff + ready.y * ebpStride;
             for (int index = 0; index < ready.batch.count; ++index) {
-                float* dftr = dft_real_batch_data(ready.real, ready.real_stride, index);
+                float* dftr = ready.real.block(index);
                 const int block_x = dft_block_job(ready.batch, index).x;
                 if (context.derived.transform_type & 1) // spatial overlapping
                     accumulate_overlap(dftr, context.coefficients.window.data, output_row + block_x, context.block.spatial_size, ebpStride);
@@ -445,8 +445,8 @@ void process_temporal_scalar(unsigned int thread_id, int plane, DFTPlaneBytes sr
         },
         [&](neo_dfttest::DFTCompletedBatch ready) {
             for (int index = 0; index < ready.batch.count; ++index) {
-                auto* dftc = dft_complex_batch_data(ready.coefficients, ready.complex_stride, index);
-                auto* dftc2 = dft_complex_batch_data(ready.removed_mean, ready.complex_stride, index);
+                auto* dftc = ready.coefficients.block(index);
+                auto* dftc2 = ready.removed_mean.block(index);
                 if (context.block.zero_mean)
                     remove_mean(
                         DFTMutableFloatSpan{complex_float_data(dftc), context.derived.coefficient_count},
@@ -466,14 +466,14 @@ void process_temporal_scalar(unsigned int thread_id, int plane, DFTPlaneBytes sr
             context.fft.backend->submit_c2r(
                 context.fft.inverse,
                 neo_dfttest::fft::C2RBatch{
-                    neo_dfttest::fft::ComplexBatchView{ready.coefficients, ready.complex_stride, neo_dfttest::fft::MemoryDomain::host},
-                    neo_dfttest::fft::RealBatchView{ready.real, ready.real_stride, neo_dfttest::fft::MemoryDomain::host},
+                    ready.coefficients.fft_view(),
+                    ready.real.fft_view(),
                     ready.batch.count,
                 }
             ).wait();
 
             for (int index = 0; index < ready.batch.count; ++index) {
-                float* dftr = dft_real_batch_data(ready.real, ready.real_stride, index);
+                float* dftr = ready.real.block(index);
                 const int block_x = dft_block_job(ready.batch, index).x;
                 if (context.derived.transform_type & 1) // spatial overlapping
                     accumulate_overlap(dftr + pos * context.derived.block_area, context.coefficients.window.data + pos * context.derived.block_area, ebuff + ready.y * ebpStride + block_x, context.block.spatial_size, ebpStride);

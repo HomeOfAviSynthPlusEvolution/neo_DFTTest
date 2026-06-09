@@ -10,11 +10,9 @@ namespace neo_dfttest {
 struct DFTCompletedBatch {
     const DFTBlockBatch& batch;
     int y {0};
-    float* real {nullptr};
-    fft::Complex* coefficients {nullptr};
-    fft::Complex* removed_mean {nullptr};
-    int real_stride {0};
-    int complex_stride {0};
+    DFTMutableRealBatchView real;
+    DFTMutableComplexBatchView coefficients;
+    DFTMutableComplexBatchView removed_mean;
 };
 
 class DftBatchPipeline {
@@ -81,12 +79,22 @@ private:
         return dft_complex_batch_data(base, complex_stride_, slot * batch_capacity_);
     }
 
+    DFTMutableRealBatchView real_batch_slot(const int slot, const int count) const noexcept {
+        return dft_host_real_batch_view(real_slot(slot), real_stride_, count);
+    }
+
+    DFTMutableComplexBatchView complex_batch_slot(fft::Complex* base, const int slot, const int count) const noexcept {
+        return dft_host_complex_batch_view(complex_slot(base, slot), complex_stride_, count);
+    }
+
     fft::Completion submit_forward(float* active_real, fft::Complex* active_coefficients, const int count) const {
+        const auto real = dft_host_real_batch_view(active_real, real_stride_, count);
+        const auto coefficients = dft_host_complex_batch_view(active_coefficients, complex_stride_, count);
         return context_.fft.backend->submit_r2c(
             context_.fft.forward,
             fft::R2CBatch{
-                fft::RealBatchView{active_real, real_stride_, fft::MemoryDomain::host},
-                fft::ComplexBatchView{active_coefficients, complex_stride_, fft::MemoryDomain::host},
+                real.fft_view(),
+                coefficients.fft_view(),
                 count,
             }
         );
@@ -98,11 +106,9 @@ private:
         complete_batch(DFTCompletedBatch{
             pending_batch.batch,
             pending_batch.y,
-            real_slot(pending_batch.slot),
-            complex_slot(scratch_.coefficients, pending_batch.slot),
-            complex_slot(scratch_.removed_mean, pending_batch.slot),
-            real_stride_,
-            complex_stride_
+            real_batch_slot(pending_batch.slot, pending_batch.batch.count),
+            complex_batch_slot(scratch_.coefficients, pending_batch.slot, pending_batch.batch.count),
+            complex_batch_slot(scratch_.removed_mean, pending_batch.slot, pending_batch.batch.count)
         });
     }
 

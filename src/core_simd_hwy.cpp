@@ -382,8 +382,8 @@ void ProcessSpatialHighway(unsigned int thread_id, int plane, DFTPlaneBytes src,
         },
         [&](neo_dfttest::DFTCompletedBatch ready) {
             for (int index = 0; index < ready.batch.count; ++index) {
-                auto* dftc = dft_complex_batch_data(ready.coefficients, ready.complex_stride, index);
-                auto* dftc2 = dft_complex_batch_data(ready.removed_mean, ready.complex_stride, index);
+                auto* dftc = ready.coefficients.block(index);
+                auto* dftc2 = ready.removed_mean.block(index);
                 if (context.block.zero_mean)
                     RemoveMeanHighway(complex_float_data(dftc), complex_float_data(context.coefficients.window_dft.data), context.derived.coefficient_count, complex_float_data(dftc2));
 
@@ -396,15 +396,15 @@ void ProcessSpatialHighway(unsigned int thread_id, int plane, DFTPlaneBytes src,
             context.fft.backend->submit_c2r(
                 context.fft.inverse,
                 neo_dfttest::fft::C2RBatch{
-                    neo_dfttest::fft::ComplexBatchView{ready.coefficients, ready.complex_stride, neo_dfttest::fft::MemoryDomain::host},
-                    neo_dfttest::fft::RealBatchView{ready.real, ready.real_stride, neo_dfttest::fft::MemoryDomain::host},
+                    ready.coefficients.fft_view(),
+                    ready.real.fft_view(),
                     ready.batch.count,
                 }
             ).wait();
 
             float* output_row = ebuff + ready.y * ebpStride;
             for (int index = 0; index < ready.batch.count; ++index) {
-                float* dftr = dft_real_batch_data(ready.real, ready.real_stride, index);
+                float* dftr = ready.real.block(index);
                 const int block_x = dft_block_job(ready.batch, index).x;
                 if (context.derived.transform_type & 1) { // spatial overlapping
                     using D_f = hn::ScalableTag<float>;
@@ -466,8 +466,8 @@ void ProcessTemporalHighway(unsigned int thread_id, int plane, DFTPlaneBytes src
         },
         [&](neo_dfttest::DFTCompletedBatch ready) {
             for (int index = 0; index < ready.batch.count; ++index) {
-                auto* dftc = dft_complex_batch_data(ready.coefficients, ready.complex_stride, index);
-                auto* dftc2 = dft_complex_batch_data(ready.removed_mean, ready.complex_stride, index);
+                auto* dftc = ready.coefficients.block(index);
+                auto* dftc2 = ready.removed_mean.block(index);
                 if (context.block.zero_mean)
                     RemoveMeanHighway(complex_float_data(dftc), complex_float_data(context.coefficients.window_dft.data), context.derived.coefficient_count, complex_float_data(dftc2));
 
@@ -480,14 +480,14 @@ void ProcessTemporalHighway(unsigned int thread_id, int plane, DFTPlaneBytes src
             context.fft.backend->submit_c2r(
                 context.fft.inverse,
                 neo_dfttest::fft::C2RBatch{
-                    neo_dfttest::fft::ComplexBatchView{ready.coefficients, ready.complex_stride, neo_dfttest::fft::MemoryDomain::host},
-                    neo_dfttest::fft::RealBatchView{ready.real, ready.real_stride, neo_dfttest::fft::MemoryDomain::host},
+                    ready.coefficients.fft_view(),
+                    ready.real.fft_view(),
                     ready.batch.count,
                 }
             ).wait();
 
             for (int index = 0; index < ready.batch.count; ++index) {
-                float* dftr = dft_real_batch_data(ready.real, ready.real_stride, index);
+                float* dftr = ready.real.block(index);
                 const int block_x = dft_block_job(ready.batch, index).x;
                 if (context.derived.transform_type & 1) { // spatial overlapping
                     using D_f = hn::ScalableTag<float>;
