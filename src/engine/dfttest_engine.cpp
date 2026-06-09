@@ -120,6 +120,7 @@ public:
     }
     config_.validate(input, state_);
     config_.configure_planes(values, state_);
+    configure_batch_policy();
 
     state_.kernels = selectFunctions(
       static_cast<unsigned>(config_.ftype),
@@ -278,6 +279,10 @@ private:
     }
   }
 
+  void configure_batch_policy() {
+    state_.batch_policy = make_cpu_dft_batch_policy(state_.block, state_.fft.backend->capabilities());
+  }
+
   void create_fft_plans() {
     state_.coefficients.window =
       detail::make_aligned_buffer<float>(state_.derived.block_volume + 7, "hw");
@@ -292,7 +297,7 @@ private:
     const int real_stride = dft_scratch_real_stride(state_.derived);
     const int complex_stride = dft_scratch_complex_stride(state_.derived);
     const fft::BatchLayout fft_layout{
-      dft_fft_batch_capacity(state_.block, state_.fft.backend->capabilities().max_batch_size),
+      dft_fft_batch_capacity(state_.batch_policy),
       real_stride,
       complex_stride
     };
@@ -696,7 +701,7 @@ private:
 
   void ensure_thread_buffers_unlocked(unsigned int thread_id) {
     DFTThreadScratchSlot& slot = state_.scratch.slots[thread_id];
-    const int scratch_slots = dft_fft_scratch_slots(state_.block, state_.fft.backend->capabilities().max_batch_size);
+    const int scratch_slots = dft_fft_scratch_slots(state_.batch_policy);
     if (!slot.ebuff) {
       slot.ebuff = detail::make_aligned_buffer<float>(
         static_cast<std::size_t>(state_.planes.e_stride[0]) * state_.planes.pad_height[0],

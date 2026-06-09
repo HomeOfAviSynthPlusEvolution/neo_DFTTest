@@ -28,7 +28,7 @@ void run_dft_batch_pipeline(
 ) {
     const int real_stride = dft_scratch_real_stride(context.derived);
     const int complex_stride = dft_scratch_complex_stride(context.derived);
-    const int batch_capacity = dft_fft_batch_capacity(context.block, context.fft.backend->capabilities().max_batch_size);
+    const int batch_capacity = dft_fft_batch_capacity(context.batch_policy);
 
     struct PendingBatch {
         DFTBlockBatch batch;

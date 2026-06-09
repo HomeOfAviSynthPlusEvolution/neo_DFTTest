@@ -177,18 +177,34 @@ inline int dft_scratch_complex_stride(const DFTDerivedGeometry& derived) noexcep
 constexpr int kMaxDftFftBatchSlots = 16;
 constexpr int kDftFftPipelineSlots = 2;
 
+struct DFTBatchPolicy {
+    int cpu_worker_threads {1};
+    int fft_max_batch_size {1};
+    int executor_preferred_batch_size {1};
+};
+
 struct DFTBlockBatch {
     std::array<int, kMaxDftFftBatchSlots> x_offsets {};
     int count {0};
 };
 
-inline int dft_fft_batch_capacity(const DFTBlockSettings& block, int backend_max_batch_size) noexcept {
-    const int backend_limit = std::max(1, backend_max_batch_size);
-    return std::min({std::max(1, block.worker_threads), kMaxDftFftBatchSlots, backend_limit});
+inline DFTBatchPolicy make_cpu_dft_batch_policy(const DFTBlockSettings& block, const neo_dfttest::fft::BackendCapabilities& backend) noexcept {
+    const int worker_threads = std::max(1, block.worker_threads);
+    return DFTBatchPolicy{
+        worker_threads,
+        std::max(1, backend.max_batch_size),
+        worker_threads
+    };
 }
 
-inline int dft_fft_scratch_slots(const DFTBlockSettings& block, int backend_max_batch_size) noexcept {
-    return dft_fft_batch_capacity(block, backend_max_batch_size) * kDftFftPipelineSlots;
+inline int dft_fft_batch_capacity(const DFTBatchPolicy& policy) noexcept {
+    const int executor_limit = std::max(1, policy.executor_preferred_batch_size);
+    const int backend_limit = std::max(1, policy.fft_max_batch_size);
+    return std::min({executor_limit, kMaxDftFftBatchSlots, backend_limit});
+}
+
+inline int dft_fft_scratch_slots(const DFTBatchPolicy& policy) noexcept {
+    return dft_fft_batch_capacity(policy) * kDftFftPipelineSlots;
 }
 
 inline float* dft_real_batch_data(float* base, int stride, int index) noexcept {
@@ -243,6 +259,7 @@ struct DFTKernelContext {
     const DFTPlaneGeometry& planes;
     const DFTSampleScale& sample;
     const DFTDerivedGeometry& derived;
+    const DFTBatchPolicy& batch_policy;
     const DFTCoefficientTables& coefficients;
     DFTThreadScratch& scratch;
     DFTFilterCoefficientsFunction filter_coefficients {nullptr};
@@ -256,6 +273,7 @@ struct DFTTestData {
     DFTPlaneGeometry planes;
     DFTSampleScale sample;
     DFTDerivedGeometry derived;
+    DFTBatchPolicy batch_policy;
     DFTCoefficientTables coefficients;
     mutable DFTThreadScratch scratch;
     DFTKernelDispatch kernels;
@@ -269,6 +287,7 @@ inline DFTKernelContext make_kernel_context(const DFTTestData& state) noexcept {
         state.planes,
         state.sample,
         state.derived,
+        state.batch_policy,
         state.coefficients,
         state.scratch,
         state.kernels.filter_coefficients,
