@@ -12,6 +12,7 @@
 #include <dualsynth/video_filter.hpp>
 
 #include "dft_common.h"
+#include "engine/dfttest_config.hpp"
 
 #include <algorithm>
 #include <array>
@@ -19,14 +20,10 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <limits>
-#include <locale>
 #include <memory>
 #include <mutex>
 #include <numeric>
 #include <random>
-#include <ranges>
-#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -35,63 +32,6 @@
 namespace neo_dfttest {
 
 namespace detail {
-
-template <class T>
-T unwrap(ds::Result<T> result) {
-  if (!result.has_value()) {
-    throw std::runtime_error(result.error().message);
-  }
-  return std::move(result.value());
-}
-
-inline bool has_param(const ds::ParamValues& params, const std::string& name) {
-  return std::ranges::any_of(params.entries, [&](const ds::ParamEntry& entry) {
-    return entry.name == name;
-  });
-}
-
-inline int read_int(const ds::ParamValues& params, const std::string& name, int default_value) {
-  return unwrap(params.get_int(name, default_value));
-}
-
-inline float read_float(const ds::ParamValues& params, const std::string& name, float default_value) {
-  return static_cast<float>(unwrap(params.get_double(name, default_value)));
-}
-
-inline bool read_bool(const ds::ParamValues& params, const std::string& name, bool default_value) {
-  return unwrap(params.get_bool(name, default_value));
-}
-
-inline std::vector<int> read_int_array(
-  const ds::ParamValues& params,
-  const std::string& name,
-  std::vector<std::int64_t> default_value = {}
-) {
-  const auto values = unwrap(params.get_int_array(name, std::move(default_value)));
-  std::vector<int> output;
-  output.reserve(values.size());
-  for (const std::int64_t value : values) {
-    if (value < std::numeric_limits<int>::min() || value > std::numeric_limits<int>::max()) {
-      throw std::runtime_error("parameter '" + name + "' contains an integer outside int range");
-    }
-    output.push_back(static_cast<int>(value));
-  }
-  return output;
-}
-
-inline std::vector<float> read_float_array(
-  const ds::ParamValues& params,
-  const std::string& name,
-  std::vector<double> default_value = {}
-) {
-  const auto values = unwrap(params.get_double_array(name, std::move(default_value)));
-  std::vector<float> output;
-  output.reserve(values.size());
-  for (const double value : values) {
-    output.push_back(static_cast<float>(value));
-  }
-  return output;
-}
 
 inline void framecpy(
   unsigned char* dst_ptr,
@@ -177,15 +117,18 @@ public:
     state_.format.subsampling_h = input.format.subsampling_h;
     state_.format.subsampling_w = input.format.subsampling_w;
 
-    read_parameters(values);
-    validate_parameters(input);
-    configure_planes(values);
+    config_ = DfttestConfig::read(values, state_);
+    if (config_.fft_threads > 1 && state_.fft.backend->has_threading()) {
+      state_.fft.backend->set_thread_count(config_.fft_threads);
+    }
+    config_.validate(input, state_);
+    config_.configure_planes(values, state_);
 
 #ifndef ENABLE_PAR
     state_.block.worker_threads = 1;
 #endif
 
-    selectFunctions(static_cast<unsigned>(ftype_), static_cast<unsigned>(opt_), &state_);
+    selectFunctions(static_cast<unsigned>(config_.ftype), static_cast<unsigned>(config_.opt), &state_);
 
     if (state_.format.integer) {
       state_.sample.multiplier = static_cast<float>(1 << (state_.format.bits_per_sample - 8));
@@ -193,7 +136,7 @@ public:
       state_.sample.peak = (1 << state_.format.bits_per_sample) - 1;
     }
 
-    if (ftype_ != 0) {
+    if (config_.ftype != 0) {
       state_.block.f0_beta = 1.0f;
     }
 
@@ -201,7 +144,7 @@ public:
     create_fft_plans();
     initialize_sigma_profile();
     prepare_noise_points();
-    resize_thread_storage(state_.block.worker_threads * fft_threads_ * 16);
+    resize_thread_storage(state_.block.worker_threads * config_.fft_threads * 16);
   }
 
   void request_frames(ds::VideoRequestContext& context) const {
@@ -279,174 +222,13 @@ private:
     unsigned int id_;
   };
 
-  void read_parameters(const ds::ParamValues& values) {
-    ftype_ = detail::read_int(values, "ftype", 0);
-    sigma_ = detail::read_float(values, "sigma", 8.0f);
-    sigma2_ = detail::read_float(values, "sigma2", 8.0f);
-    pmin_ = detail::read_float(values, "pmin", 0.0f);
-    pmax_ = detail::read_float(values, "pmax", 500.0f);
-    smode_ = detail::read_int(values, "smode", 1);
-    tmode_ = detail::read_int(values, "tmode", 0);
-    opt_ = detail::read_int(values, "opt", 0);
-
-    state_.block.spatial_size = detail::read_int(values, "sbsize", state_.block.spatial_size);
-    state_.block.spatial_overlap = detail::read_int(values, "sosize", state_.block.spatial_overlap);
-    state_.block.temporal_size = detail::read_int(values, "tbsize", state_.block.temporal_size);
-    state_.block.temporal_overlap = detail::read_int(values, "tosize", state_.block.temporal_overlap);
-    state_.block.spatial_window = detail::read_int(values, "swin", state_.block.spatial_window);
-    state_.block.temporal_window = detail::read_int(values, "twin", state_.block.temporal_window);
-    state_.block.spatial_beta = detail::read_float(values, "sbeta", state_.block.spatial_beta);
-    state_.block.temporal_beta = detail::read_float(values, "tbeta", state_.block.temporal_beta);
-    state_.block.zero_mean = detail::read_bool(values, "zmean", state_.block.zero_mean);
-    state_.block.f0_beta = detail::read_float(values, "f0beta", state_.block.f0_beta);
-    state_.block.worker_threads = detail::read_int(values, "threads", state_.block.worker_threads);
-    state_.block.dither_mode = detail::read_int(values, "dither", state_.block.dither_mode);
-    fft_threads_ = detail::read_int(values, "fft_threads", fft_threads_);
-    if (fft_threads_ < 1) {
-      fft_threads_ = 1;
-    }
-
-    if (smode_ == 0) {
-      state_.block.spatial_overlap = 0;
-    }
-    if (tmode_ == 0) {
-      state_.block.temporal_overlap = 0;
-    }
-
-    if (fft_threads_ > 1 && state_.fft.backend->has_threading()) {
-      state_.fft.backend->set_thread_count(fft_threads_);
-    }
-
-    nlocation_ = detail::read_int_array(values, "nlocation");
-    alpha_ = detail::read_float(values, "alpha", ftype_ == 0 ? 5.0f : 7.0f);
-    slocation_ = detail::read_float_array(values, "slocation");
-    ssx_ = detail::read_float_array(values, "ssx");
-    ssy_ = detail::read_float_array(values, "ssy");
-    sst_ = detail::read_float_array(values, "sst");
-    ssystem_ = detail::read_int(values, "ssystem", 0);
-
-    if (state_.block.worker_threads <= 0) {
-      state_.block.worker_threads = 4;
-    }
-    if (state_.block.worker_threads > 16) {
-      state_.block.worker_threads = 16;
-    }
-  }
-
-  void configure_planes(const ds::ParamValues& values) {
-    std::fill(std::begin(state_.planes.process), std::end(state_.planes.process), 2);
-
-    if (detail::has_param(values, "planes")) {
-      const auto planes = detail::read_int_array(values, "planes");
-      for (const int plane : planes) {
-        if (plane < 0 || plane >= state_.format.num_planes) {
-          throw std::runtime_error("plane index out of range");
-        }
-        state_.planes.process[plane] = 3;
-      }
-      return;
-    }
-
-    state_.planes.process[0] = 3;
-    state_.planes.process[1] = 3;
-    state_.planes.process[2] = 3;
-    state_.planes.process[3] = 2;
-    state_.planes.process[0] = detail::read_int(values, "y", state_.planes.process[0]);
-    state_.planes.process[1] = detail::read_int(values, "u", state_.planes.process[1]);
-    state_.planes.process[2] = detail::read_int(values, "v", state_.planes.process[2]);
-    state_.planes.process[3] = detail::read_int(values, "a", state_.planes.process[3]);
-  }
-
-  void validate_parameters(const ds::VideoInputInfo& input) const {
-    if (input.width <= 0 || input.height <= 0) {
-      throw std::runtime_error("only constant format input supported");
-    }
-
-    if (
-      (state_.format.integer && state_.format.bits_per_sample > 16) ||
-      (!state_.format.integer && state_.format.bits_per_sample != 32)
-    ) {
-      throw std::runtime_error("only 8-16 bit integer and 32 bit float input supported");
-    }
-
-    if (ftype_ < 0 || ftype_ > 4) {
-      throw std::runtime_error("ftype must be 0, 1, 2, 3, or 4");
-    }
-    if (state_.block.spatial_size < 1) {
-      throw std::runtime_error("sbsize must be greater than or equal to 1");
-    }
-    if (smode_ < 0 || smode_ > 1) {
-      throw std::runtime_error("smode must be 0 or 1");
-    }
-    if (smode_ == 0 && !(state_.block.spatial_size & 1)) {
-      throw std::runtime_error("sbsize must be odd when using smode=0");
-    }
-    if (state_.block.spatial_overlap < 0 || state_.block.spatial_overlap >= state_.block.spatial_size) {
-      throw std::runtime_error("sosize must be between 0 and sbsize-1 (inclusive)");
-    }
-    if (state_.block.spatial_overlap > state_.block.spatial_size / 2 && state_.block.spatial_size % (state_.block.spatial_size - state_.block.spatial_overlap) != 0) {
-      throw std::runtime_error(
-        "spatial overlap greater than 50% requires that sbsize-sosize is a divisor of sbsize"
-      );
-    }
-    if (state_.block.temporal_size < 1 || state_.block.temporal_size > 15) {
-      throw std::runtime_error("tbsize must be between 1 and 15 (inclusive)");
-    }
-    if (tmode_ != 0) {
-      throw std::runtime_error("tmode must be 0. tmode=1 is not implemented");
-    }
-    if (tmode_ == 0 && !(state_.block.temporal_size & 1)) {
-      throw std::runtime_error("tbsize must be odd when using tmode=0");
-    }
-    if (state_.block.temporal_overlap < 0 || state_.block.temporal_overlap >= state_.block.temporal_size) {
-      throw std::runtime_error("tosize must be between 0 and tbsize-1 (inclusive)");
-    }
-    if (state_.block.temporal_overlap > state_.block.temporal_size / 2 && state_.block.temporal_size % (state_.block.temporal_size - state_.block.temporal_overlap) != 0) {
-      throw std::runtime_error(
-        "temporal overlap greater than 50% requires that tbsize-tosize is a divisor of tbsize"
-      );
-    }
-    if (state_.block.temporal_size > input.num_frames) {
-      throw std::runtime_error("tbsize must be less than or equal to the number of frames in the clip");
-    }
-    if (state_.block.spatial_window < 0 || state_.block.spatial_window > 11) {
-      throw std::runtime_error("swin must be between 0 and 11 (inclusive)");
-    }
-    if (state_.block.temporal_window < 0 || state_.block.temporal_window > 11) {
-      throw std::runtime_error("twin must be between 0 and 11 (inclusive)");
-    }
-    if (nlocation_.size() & 3U) {
-      throw std::runtime_error("the number of elements in nlocation must be a multiple of 4");
-    }
-    if (alpha_ <= 0.0f) {
-      throw std::runtime_error("alpha must be greater than 0.0");
-    }
-    if (slocation_.size() & 1U) {
-      throw std::runtime_error("the number of elements in slocation must be even");
-    }
-    if (ssx_.size() & 1U) {
-      throw std::runtime_error("the number of elements in ssx must be even");
-    }
-    if (ssy_.size() & 1U) {
-      throw std::runtime_error("the number of elements in ssy must be even");
-    }
-    if (sst_.size() & 1U) {
-      throw std::runtime_error("the number of elements in sst must be even");
-    }
-    if (ssystem_ < 0 || ssystem_ > 1) {
-      throw std::runtime_error("ssystem must be 0 or 1");
-    }
-    if (opt_ != 8 && (opt_ < 0 || opt_ > 3)) {
-      throw std::runtime_error("opt must be 0, 1, 2, 3, or 8");
-    }
-  }
-
   void configure_geometry() {
     state_.derived.block_area = state_.block.spatial_size * state_.block.spatial_size;
     state_.derived.block_volume = state_.derived.block_area * state_.block.temporal_size;
     state_.derived.complex_count = (state_.block.spatial_size / 2 + 1) * state_.block.spatial_size * state_.block.temporal_size;
     state_.derived.coefficient_count = state_.derived.complex_count * 2;
-    state_.derived.transform_type = tmode_ * 4 + (state_.block.temporal_size > 1 ? 2 : 0) + smode_;
+    state_.derived.transform_type =
+      config_.tmode * 4 + (state_.block.temporal_size > 1 ? 2 : 0) + config_.smode;
     state_.derived.spatial_center = state_.block.spatial_size / 2;
     state_.derived.custom_f0_beta = std::abs(state_.block.f0_beta - 1.0f) >= 0.00005f;
     state_.derived.step = (state_.derived.transform_type & 1) ? state_.block.spatial_size - state_.block.spatial_overlap : 1;
@@ -459,7 +241,7 @@ private:
       const int width = state_.planes.width[plane];
       const int height = state_.planes.height[plane];
 
-      if (smode_ == 0) {
+      if (config_.smode == 0) {
         const int ae = (state_.block.spatial_size >> 1) << 1;
         state_.planes.pad_width[plane] = width + ae;
         state_.planes.pad_height[plane] = height + ae;
@@ -485,7 +267,7 @@ private:
   void create_fft_plans() {
     state_.coefficients.window =
       detail::make_aligned_buffer<float>(state_.derived.block_volume + 7, "hw");
-    createWindow(state_.coefficients.window.data(), tmode_, smode_, &state_);
+    createWindow(state_.coefficients.window.data(), config_.tmode, config_.smode, &state_);
 
     auto dftgr = detail::make_aligned_buffer<float>(state_.derived.block_volume + 7, "dftgr");
     state_.coefficients.window_dft =
@@ -547,7 +329,7 @@ private:
   }
 
   void initialize_sigma_profile() {
-    const float wscalef = (ftype_ < 2) ? wscale_ : 1.0f;
+    const float wscalef = (config_.ftype < 2) ? wscale_ : 1.0f;
 
     state_.coefficients.sigmas =
       detail::make_aligned_buffer<float>(state_.derived.coefficient_count + 7, "sigmas");
@@ -558,18 +340,18 @@ private:
     state_.coefficients.pmaxs =
       detail::make_aligned_buffer<float>(state_.derived.coefficient_count + 7, "pmaxs");
 
-    if (!slocation_.empty() || !ssx_.empty() || !ssy_.empty() || !sst_.empty()) {
+    if (!config_.slocation.empty() || !config_.ssx.empty() || !config_.ssy.empty() || !config_.sst.empty()) {
       initialize_spatially_varying_sigmas(wscalef);
     } else {
       for (int i = 0; i < state_.derived.coefficient_count; i++) {
-        state_.coefficients.sigmas[i] = sigma_ / wscalef;
+        state_.coefficients.sigmas[i] = config_.sigma / wscalef;
       }
     }
 
     for (int i = 0; i < state_.derived.coefficient_count; i++) {
-      state_.coefficients.sigmas2[i] = sigma2_ / wscalef;
-      state_.coefficients.pmins[i] = pmin_ / wscale_;
-      state_.coefficients.pmaxs[i] = pmax_ / wscale_;
+      state_.coefficients.sigmas2[i] = config_.sigma2 / wscalef;
+      state_.coefficients.pmins[i] = config_.pmin / wscale_;
+      state_.coefficients.pmaxs[i] = config_.pmax / wscale_;
     }
   }
 
@@ -590,14 +372,14 @@ private:
     float* sydata = nullptr;
     float* sxdata = nullptr;
 
-    if (!slocation_.empty()) {
-      tdata = parseSigmaLocation(slocation_, tcnt, sigma_, ssystem_ ? 1.0f : ndiv);
-      sydata = parseSigmaLocation(slocation_, sycnt, sigma_, ssystem_ ? 1.0f : ndiv);
-      sxdata = parseSigmaLocation(slocation_, sxcnt, sigma_, ssystem_ ? 1.0f : ndiv);
+    if (!config_.slocation.empty()) {
+      tdata = parseSigmaLocation(config_.slocation, tcnt, config_.sigma, config_.ssystem ? 1.0f : ndiv);
+      sydata = parseSigmaLocation(config_.slocation, sycnt, config_.sigma, config_.ssystem ? 1.0f : ndiv);
+      sxdata = parseSigmaLocation(config_.slocation, sxcnt, config_.sigma, config_.ssystem ? 1.0f : ndiv);
     } else {
-      tdata = parseSigmaLocation(sst_, tcnt, sigma_, ndiv);
-      sydata = parseSigmaLocation(ssy_, sycnt, sigma_, ndiv);
-      sxdata = parseSigmaLocation(ssx_, sxcnt, sigma_, ndiv);
+      tdata = parseSigmaLocation(config_.sst, tcnt, config_.sigma, ndiv);
+      sydata = parseSigmaLocation(config_.ssy, sycnt, config_.sigma, ndiv);
+      sxdata = parseSigmaLocation(config_.ssx, sxcnt, config_.sigma, ndiv);
     }
 
     std::unique_ptr<float[]> t_smart(tdata);
@@ -617,7 +399,7 @@ private:
           const float sxval = getSVal(x, state_.block.spatial_size, sxdata, sxcnt, pfx);
           float val = 0.0f;
 
-          if (ssystem_) {
+          if (config_.ssystem) {
             const float dw = std::sqrt((pft * pft + pfy * pfy + pfx * pfx) / static_cast<float>(ndim));
             val = interp(dw, tdata, tcnt);
           } else {
@@ -632,16 +414,16 @@ private:
   }
 
   void prepare_noise_points() {
-    if (nlocation_.empty() || ftype_ >= 2) {
+    if (config_.nlocation.empty() || config_.ftype >= 2) {
       noise_profile_ready_ = true;
       return;
     }
 
-    for (std::size_t i = 0; i < nlocation_.size(); i += 4) {
-      const int fn = nlocation_[i + 0];
-      const int plane = nlocation_[i + 1];
-      const int y = nlocation_[i + 2];
-      const int x = nlocation_[i + 3];
+    for (std::size_t i = 0; i < config_.nlocation.size(); i += 4) {
+      const int fn = config_.nlocation[i + 0];
+      const int plane = config_.nlocation[i + 1];
+      const int y = config_.nlocation[i + 2];
+      const int x = config_.nlocation[i + 3];
 
       if (fn < 0 || fn > input_.num_frames - state_.block.temporal_size) {
         throw std::runtime_error("invalid frame number in nlocation (" + std::to_string(fn) + ")");
@@ -751,7 +533,7 @@ private:
 
     const float scale = 1.0f / static_cast<float>(noise_points_.size());
     for (int h = 0; h < state_.derived.coefficient_count; h++) {
-      state_.coefficients.sigmas[h] *= scale * (wscale2 / wscale_) * alpha_;
+      state_.coefficients.sigmas[h] *= scale * (wscale2 / wscale_) * config_.alpha;
     }
 
     noise_profile_ready_ = true;
@@ -911,24 +693,9 @@ private:
   ds::VideoInputInfo input_{};
   ds::HostGlobalLockCallbacks host_locks_{};
   DFTTestData state_{};
+  DfttestConfig config_{};
   std::unique_ptr<fft::Backend> fft_;
-  int fft_threads_ = 2;
-  int ftype_ = 0;
-  int smode_ = 1;
-  int tmode_ = 0;
-  int opt_ = 0;
-  int ssystem_ = 0;
-  float sigma_ = 8.0f;
-  float sigma2_ = 8.0f;
-  float pmin_ = 0.0f;
-  float pmax_ = 500.0f;
-  float alpha_ = 5.0f;
   float wscale_ = 1.0f;
-  std::vector<int> nlocation_;
-  std::vector<float> slocation_;
-  std::vector<float> ssx_;
-  std::vector<float> ssy_;
-  std::vector<float> sst_;
   std::vector<NPInfo> noise_points_;
   bool noise_profile_ready_ = false;
   std::mutex noise_profile_mutex_;
