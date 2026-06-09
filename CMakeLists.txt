@@ -16,6 +16,7 @@ add_library(neo-dfttest SHARED
   src/engine/dfttest_config.hpp
   src/fft/fft_backend.hpp
   src/fft/fftw_backend.cpp
+  src/engine/pixel_plane.hpp
   src/fftwlite.h
   src/memory/aligned_buffer.hpp
 )

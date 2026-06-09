@@ -13,6 +13,7 @@
 
 #include "dft_common.h"
 #include "engine/dfttest_config.hpp"
+#include "engine/pixel_plane.hpp"
 
 #include <algorithm>
 #include <array>
@@ -33,26 +34,6 @@ namespace neo_dfttest {
 
 namespace detail {
 
-inline void framecpy(
-  unsigned char* dst_ptr,
-  int dst_stride,
-  const unsigned char* src_ptr,
-  int src_stride,
-  int width_byte,
-  int height
-) {
-  if (src_stride == dst_stride) {
-    std::memcpy(dst_ptr, src_ptr, static_cast<std::size_t>(dst_stride) * static_cast<std::size_t>(height));
-    return;
-  }
-
-  for (int h = 0; h < height; h++) {
-    std::memcpy(dst_ptr, src_ptr, static_cast<std::size_t>(width_byte));
-    dst_ptr += dst_stride;
-    src_ptr += src_stride;
-  }
-}
-
 template <class T>
 AlignedBuffer<T> make_aligned_buffer(std::size_t count, const char* name) {
   try {
@@ -60,22 +41,6 @@ AlignedBuffer<T> make_aligned_buffer(std::size_t count, const char* name) {
   } catch (const std::bad_alloc&) {
     throw std::runtime_error(std::string("malloc failure (") + name + ")");
   }
-}
-
-inline unsigned char* writable_plane_data(ds::MutableVideoFrameView& frame, int plane) {
-  return static_cast<unsigned char*>(frame.plane(plane).data);
-}
-
-inline const unsigned char* readable_plane_data(const ds::VideoFrameView& frame, int plane) {
-  return static_cast<const unsigned char*>(frame.plane(plane).data);
-}
-
-inline int plane_stride(const ds::PlaneView& plane) {
-  return static_cast<int>(plane.stride_bytes);
-}
-
-inline int plane_stride(const ds::MutablePlaneView& plane) {
-  return static_cast<int>(plane.stride_bytes);
 }
 
 } // namespace detail
@@ -494,20 +459,17 @@ private:
           throw std::runtime_error(frame.error().message);
         }
 
-        const ds::PlaneView& plane = frame.value().frame.plane(point.b);
-        const int stride_elements = static_cast<int>(plane.stride_bytes) / state_.format.bytes_per_sample;
+        const auto plane = engine::read_plane(frame.value().frame, point.b, state_);
+        const int stride_elements = plane.stride_elements(state_.format.bytes_per_sample);
 
         if (state_.format.bytes_per_sample == 1) {
-          const auto* srcp =
-            static_cast<const std::uint8_t*>(plane.data) + stride_elements * point.y + point.x;
+          const auto* srcp = plane.typed_at<std::uint8_t>(point.x, point.y, state_.format.bytes_per_sample);
           proc0_c(srcp, hw2.data() + state_.derived.block_area * z, dftr.data() + state_.derived.block_area * z, stride_elements, state_.block.spatial_size, state_.sample.divisor);
         } else if (state_.format.bytes_per_sample == 2) {
-          const auto* srcp =
-            static_cast<const std::uint16_t*>(plane.data) + stride_elements * point.y + point.x;
+          const auto* srcp = plane.typed_at<std::uint16_t>(point.x, point.y, state_.format.bytes_per_sample);
           proc0_c(srcp, hw2.data() + state_.derived.block_area * z, dftr.data() + state_.derived.block_area * z, stride_elements, state_.block.spatial_size, state_.sample.divisor);
         } else {
-          const auto* srcp =
-            static_cast<const float*>(plane.data) + stride_elements * point.y + point.x;
+          const auto* srcp = plane.typed_at<float>(point.x, point.y, state_.format.bytes_per_sample);
           proc0_c(srcp, hw2.data() + state_.derived.block_area * z, dftr.data() + state_.derived.block_area * z, stride_elements, state_.block.spatial_size, state_.sample.divisor);
         }
       }
@@ -545,31 +507,18 @@ private:
     ds::MutableVideoFrameView& dst
   ) {
     for (int plane = 0; plane < state_.format.num_planes; plane++) {
-      const int height = state_.planes.height[plane];
-      const int width = state_.planes.width[plane];
-      const auto& src_plane = src.plane(plane);
-      const auto& dst_plane = dst.plane(plane);
-      const int src_stride = detail::plane_stride(src_plane);
-      const int dst_stride = detail::plane_stride(dst_plane);
-      const auto* src_ptr = detail::readable_plane_data(src, plane);
-      auto* dst_ptr = detail::writable_plane_data(dst, plane);
+      const auto src_plane = engine::read_plane(src, plane, state_);
+      const auto dst_plane = engine::write_plane(dst, plane, state_);
 
       if (state_.planes.process[plane] == 3) {
         auto pad = detail::make_aligned_buffer<unsigned char>(
           state_.planes.pad_block_size[plane] * state_.block.temporal_size,
           "pad0"
         );
-        state_.kernels.copy_pad(plane, src_ptr, src_stride, pad.data(), &state_);
-        state_.kernels.process_spatial(thread_id, plane, pad.data(), dst_ptr, dst_stride, &state_);
+        state_.kernels.copy_pad(plane, src_plane.data, src_plane.stride_bytes, pad.data(), &state_);
+        state_.kernels.process_spatial(thread_id, plane, pad.data(), dst_plane.data, dst_plane.stride_bytes, &state_);
       } else if (state_.planes.process[plane] == 2) {
-        detail::framecpy(
-          dst_ptr,
-          dst_stride,
-          src_ptr,
-          src_stride,
-          width * state_.format.bytes_per_sample,
-          height
-        );
+        engine::copy_plane_rows(src_plane, dst_plane);
       }
     }
   }
@@ -584,14 +533,8 @@ private:
     const int pos = state_.block.temporal_size / 2;
 
     for (int plane = 0; plane < state_.format.num_planes; plane++) {
-      const int height = state_.planes.height[plane];
-      const int width = state_.planes.width[plane];
-      const auto& src0_plane = current.plane(plane);
-      const auto& dst_plane = dst.plane(plane);
-      const int src0_stride = detail::plane_stride(src0_plane);
-      const int dst_stride = detail::plane_stride(dst_plane);
-      const auto* src0_ptr = detail::readable_plane_data(current, plane);
-      auto* dst_ptr = detail::writable_plane_data(dst, plane);
+      const auto src0_plane = engine::read_plane(current, plane, state_);
+      const auto dst_plane = engine::write_plane(dst, plane, state_);
 
       if (state_.planes.process[plane] == 3) {
         auto pad0 = detail::make_aligned_buffer<unsigned char>(
@@ -607,23 +550,22 @@ private:
             throw std::runtime_error(src_frame.error().message);
           }
 
-          const auto& src_plane = src_frame.value().frame.plane(plane);
-          const int src_stride = detail::plane_stride(src_plane);
-          const auto* src_ptr = detail::readable_plane_data(src_frame.value().frame, plane);
+          const auto src_plane = engine::read_plane(src_frame.value().frame, plane, state_);
           auto* pad = pad0.data() + state_.planes.pad_block_size[plane] * i;
-          state_.kernels.copy_pad(plane, src_ptr, src_stride, pad, &state_);
+          state_.kernels.copy_pad(plane, src_plane.data, src_plane.stride_bytes, pad, &state_);
         }
 
-        state_.kernels.process_temporal(thread_id, plane, pad0.data(), dst_ptr, dst_stride, pos, &state_);
-      } else if (state_.planes.process[plane] == 2) {
-        detail::framecpy(
-          dst_ptr,
-          dst_stride,
-          src0_ptr,
-          src0_stride,
-          width * state_.format.bytes_per_sample,
-          height
+        state_.kernels.process_temporal(
+          thread_id,
+          plane,
+          pad0.data(),
+          dst_plane.data,
+          dst_plane.stride_bytes,
+          pos,
+          &state_
         );
+      } else if (state_.planes.process[plane] == 2) {
+        engine::copy_plane_rows(src0_plane, dst_plane);
       }
     }
   }
