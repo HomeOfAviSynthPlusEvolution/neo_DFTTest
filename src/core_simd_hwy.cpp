@@ -9,6 +9,7 @@
 
 #include "dft_common.h"
 #include "core.h"
+#include "core_batch_pipeline.hpp"
 #include <algorithm>
 #include <numeric>
 #include <type_traits> // Required for std::is_same_v
@@ -338,107 +339,58 @@ void ProcessSpatialHighway(unsigned int thread_id, int plane, DFTPlaneBytes src,
     const int eheight = context.planes.e_height[plane];
     const int srcStride = context.planes.pad_stride[plane] / sizeof(T);
     const int ebpStride = context.planes.e_stride[plane];
-    const int real_stride = dft_scratch_real_stride(context.derived);
-    const int complex_stride = dft_scratch_complex_stride(context.derived);
-    const int batch_capacity = dft_fft_batch_capacity(context.block, context.fft.backend->capabilities().max_batch_size);
-    DFTBlockBatch batch;
 
     memset(ebuff, 0, ebpStride * height * sizeof(float));
 
     const T * srcp = reinterpret_cast<const T *>(src.data);
-    float * ebpSaved = ebuff;
 
-    struct PendingSpatialBatch {
-        DFTBlockBatch batch;
-        float* output_row {nullptr};
-        int slot {0};
-        neo_dfttest::fft::Completion forward;
-    };
-    std::optional<PendingSpatialBatch> pending;
+    neo_dfttest::run_dft_batch_pipeline(
+        context,
+        neo_dfttest::DFTBatchScratchBuffers{dftr_base, dftc_base, dftc2_base},
+        width,
+        eheight,
+        [&](int y, int x, float* dftr) {
+            LoadWindowedBlock(srcp + y * srcStride + x, context.coefficients.window.data(), dftr, srcStride, context.block.spatial_size, context.sample.divisor);
+        },
+        [&](neo_dfttest::DFTCompletedBatch ready) {
+            for (int index = 0; index < ready.batch.count; ++index) {
+                auto* dftc = dft_complex_batch_data(ready.coefficients, ready.complex_stride, index);
+                auto* dftc2 = dft_complex_batch_data(ready.removed_mean, ready.complex_stride, index);
+                if (context.block.zero_mean)
+                    RemoveMeanHighway(complex_float_data(dftc), complex_float_data(context.coefficients.window_dft.data()), context.derived.coefficient_count, complex_float_data(dftc2));
 
-    auto real_slot = [&](int slot) noexcept {
-        return dft_real_batch_data(dftr_base, real_stride, slot * batch_capacity);
-    };
-    auto complex_slot = [&](neo_dfttest::fft::Complex* base, int slot) noexcept {
-        return dft_complex_batch_data(base, complex_stride, slot * batch_capacity);
-    };
-    auto consume_pending = [&](PendingSpatialBatch& pending_batch) noexcept {
-        pending_batch.forward.wait();
-        auto* pending_dftr = real_slot(pending_batch.slot);
-        auto* pending_dftc = complex_slot(dftc_base, pending_batch.slot);
-        auto* pending_dftc2 = complex_slot(dftc2_base, pending_batch.slot);
+                context.filter_coefficients(make_filter_input(dftc, context));
 
-        for (int index = 0; index < pending_batch.batch.count; ++index) {
-            auto* dftc = dft_complex_batch_data(pending_dftc, complex_stride, index);
-            auto* dftc2 = dft_complex_batch_data(pending_dftc2, complex_stride, index);
-            if (context.block.zero_mean)
-                RemoveMeanHighway(complex_float_data(dftc), complex_float_data(context.coefficients.window_dft.data()), context.derived.coefficient_count, complex_float_data(dftc2));
-
-            context.filter_coefficients(make_filter_input(dftc, context));
-
-            if (context.block.zero_mean)
-                AddMeanHighway(complex_float_data(dftc), context.derived.coefficient_count, complex_float_data(dftc2));
-        }
-
-        context.fft.backend->submit_c2r(
-            context.fft.inverse,
-            neo_dfttest::fft::C2RBatch{
-                neo_dfttest::fft::ComplexBatchView{pending_dftc, complex_stride, neo_dfttest::fft::MemoryDomain::host},
-                neo_dfttest::fft::RealBatchView{pending_dftr, real_stride, neo_dfttest::fft::MemoryDomain::host},
-                pending_batch.batch.count,
-            }
-        ).wait();
-
-        for (int index = 0; index < pending_batch.batch.count; ++index) {
-            float* dftr = dft_real_batch_data(pending_dftr, real_stride, index);
-            const int block_x = pending_batch.batch.x_offsets[static_cast<std::size_t>(index)];
-            if (context.derived.transform_type & 1) { // spatial overlapping
-                using D_f = hn::ScalableTag<float>;
-                const size_t N_f = hn::Lanes(D_f()); // Get lane count for float
-                if (!(context.block.spatial_size & (N_f - 1))) // Check alignment relative to Highway's float vector width
-                     AccumulateOverlap(dftr, context.coefficients.window.data(), pending_batch.output_row + block_x, context.block.spatial_size, ebpStride);
-                else
-                     AccumulateOverlapPartial(dftr, context.coefficients.window.data(), pending_batch.output_row + block_x, context.block.spatial_size, ebpStride);
-            }
-            else
-                pending_batch.output_row[block_x + context.derived.spatial_center * ebpStride + context.derived.spatial_center] = dftr[context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center] * context.coefficients.window.data()[context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center];
-        }
-    };
-
-    int active_slot = 0;
-    for (int y = 0; y < eheight; y += context.derived.step) {
-        for (int x = 0; x <= width - context.block.spatial_size;) {
-            float* active_dftr = real_slot(active_slot);
-            auto* active_dftc = complex_slot(dftc_base, active_slot);
-            batch.count = 0;
-            for (; batch.count < batch_capacity && x <= width - context.block.spatial_size; ++batch.count, x += context.derived.step) {
-                float* dftr = dft_real_batch_data(active_dftr, real_stride, batch.count);
-                batch.x_offsets[static_cast<std::size_t>(batch.count)] = x;
-                LoadWindowedBlock(srcp + x, context.coefficients.window.data(), dftr, srcStride, context.block.spatial_size, context.sample.divisor);
+                if (context.block.zero_mean)
+                    AddMeanHighway(complex_float_data(dftc), context.derived.coefficient_count, complex_float_data(dftc2));
             }
 
-            auto forward = context.fft.backend->submit_r2c(
-                context.fft.forward,
-                neo_dfttest::fft::R2CBatch{
-                    neo_dfttest::fft::RealBatchView{active_dftr, real_stride, neo_dfttest::fft::MemoryDomain::host},
-                    neo_dfttest::fft::ComplexBatchView{active_dftc, complex_stride, neo_dfttest::fft::MemoryDomain::host},
-                    batch.count,
+            context.fft.backend->submit_c2r(
+                context.fft.inverse,
+                neo_dfttest::fft::C2RBatch{
+                    neo_dfttest::fft::ComplexBatchView{ready.coefficients, ready.complex_stride, neo_dfttest::fft::MemoryDomain::host},
+                    neo_dfttest::fft::RealBatchView{ready.real, ready.real_stride, neo_dfttest::fft::MemoryDomain::host},
+                    ready.batch.count,
                 }
-            );
+            ).wait();
 
-            if (pending) {
-                consume_pending(*pending);
+            float* output_row = ebuff + ready.y * ebpStride;
+            for (int index = 0; index < ready.batch.count; ++index) {
+                float* dftr = dft_real_batch_data(ready.real, ready.real_stride, index);
+                const int block_x = ready.batch.x_offsets[static_cast<std::size_t>(index)];
+                if (context.derived.transform_type & 1) { // spatial overlapping
+                    using D_f = hn::ScalableTag<float>;
+                    const size_t N_f = hn::Lanes(D_f()); // Get lane count for float
+                    if (!(context.block.spatial_size & (N_f - 1))) // Check alignment relative to Highway's float vector width
+                         AccumulateOverlap(dftr, context.coefficients.window.data(), output_row + block_x, context.block.spatial_size, ebpStride);
+                    else
+                         AccumulateOverlapPartial(dftr, context.coefficients.window.data(), output_row + block_x, context.block.spatial_size, ebpStride);
+                }
+                else
+                    output_row[block_x + context.derived.spatial_center * ebpStride + context.derived.spatial_center] = dftr[context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center] * context.coefficients.window.data()[context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center];
             }
-            pending.emplace(PendingSpatialBatch{batch, ebpSaved, active_slot, std::move(forward)});
-            active_slot = 1 - active_slot;
         }
-
-        srcp += srcStride * context.derived.step;
-        ebpSaved += ebpStride * context.derived.step;
-    }
-    if (pending) {
-        consume_pending(*pending);
-    }
+    );
 
     int dstWidth = context.planes.width[plane];
     int dstHeight = context.planes.height[plane];
@@ -464,10 +416,6 @@ void ProcessTemporalHighway(unsigned int thread_id, int plane, DFTPlaneBytes src
     const int eheight = context.planes.e_height[plane];
     const int srcStride = context.planes.pad_stride[plane] / sizeof(T);
     const int ebpStride = context.planes.e_stride[plane];
-    const int real_stride = dft_scratch_real_stride(context.derived);
-    const int complex_stride = dft_scratch_complex_stride(context.derived);
-    const int batch_capacity = dft_fft_batch_capacity(context.block, context.fft.backend->capabilities().max_batch_size);
-    DFTBlockBatch batch;
 
     memset(ebuff, 0, ebpStride * height * sizeof(float));
 
@@ -475,98 +423,53 @@ void ProcessTemporalHighway(unsigned int thread_id, int plane, DFTPlaneBytes src
     for (int i = 0; i < context.block.temporal_size; i++)
         srcp[i] = reinterpret_cast<const T *>(src.data + context.planes.pad_block_size[plane] * i);
 
-    struct PendingTemporalBatch {
-        DFTBlockBatch batch;
-        int y {0};
-        int slot {0};
-        neo_dfttest::fft::Completion forward;
-    };
-    std::optional<PendingTemporalBatch> pending;
+    neo_dfttest::run_dft_batch_pipeline(
+        context,
+        neo_dfttest::DFTBatchScratchBuffers{dftr_base, dftc_base, dftc2_base},
+        width,
+        eheight,
+        [&](int y, int x, float* dftr) {
+            for (int z = 0; z < context.block.temporal_size; z++)
+                LoadWindowedBlock(srcp[z] + y * srcStride + x, context.coefficients.window.data() + context.derived.block_area * z, dftr + context.derived.block_area * z, srcStride, context.block.spatial_size, context.sample.divisor);
+        },
+        [&](neo_dfttest::DFTCompletedBatch ready) {
+            for (int index = 0; index < ready.batch.count; ++index) {
+                auto* dftc = dft_complex_batch_data(ready.coefficients, ready.complex_stride, index);
+                auto* dftc2 = dft_complex_batch_data(ready.removed_mean, ready.complex_stride, index);
+                if (context.block.zero_mean)
+                    RemoveMeanHighway(complex_float_data(dftc), complex_float_data(context.coefficients.window_dft.data()), context.derived.coefficient_count, complex_float_data(dftc2));
 
-    auto real_slot = [&](int slot) noexcept {
-        return dft_real_batch_data(dftr_base, real_stride, slot * batch_capacity);
-    };
-    auto complex_slot = [&](neo_dfttest::fft::Complex* base, int slot) noexcept {
-        return dft_complex_batch_data(base, complex_stride, slot * batch_capacity);
-    };
-    auto consume_pending = [&](PendingTemporalBatch& pending_batch) noexcept {
-        pending_batch.forward.wait();
-        auto* pending_dftr = real_slot(pending_batch.slot);
-        auto* pending_dftc = complex_slot(dftc_base, pending_batch.slot);
-        auto* pending_dftc2 = complex_slot(dftc2_base, pending_batch.slot);
+                context.filter_coefficients(make_filter_input(dftc, context));
 
-        for (int index = 0; index < pending_batch.batch.count; ++index) {
-            auto* dftc = dft_complex_batch_data(pending_dftc, complex_stride, index);
-            auto* dftc2 = dft_complex_batch_data(pending_dftc2, complex_stride, index);
-            if (context.block.zero_mean)
-                RemoveMeanHighway(complex_float_data(dftc), complex_float_data(context.coefficients.window_dft.data()), context.derived.coefficient_count, complex_float_data(dftc2));
-
-            context.filter_coefficients(make_filter_input(dftc, context));
-
-            if (context.block.zero_mean)
-                AddMeanHighway(complex_float_data(dftc), context.derived.coefficient_count, complex_float_data(dftc2));
-        }
-
-        context.fft.backend->submit_c2r(
-            context.fft.inverse,
-            neo_dfttest::fft::C2RBatch{
-                neo_dfttest::fft::ComplexBatchView{pending_dftc, complex_stride, neo_dfttest::fft::MemoryDomain::host},
-                neo_dfttest::fft::RealBatchView{pending_dftr, real_stride, neo_dfttest::fft::MemoryDomain::host},
-                pending_batch.batch.count,
-            }
-        ).wait();
-
-        for (int index = 0; index < pending_batch.batch.count; ++index) {
-            float* dftr = dft_real_batch_data(pending_dftr, real_stride, index);
-            const int block_x = pending_batch.batch.x_offsets[static_cast<std::size_t>(index)];
-            if (context.derived.transform_type & 1) { // spatial overlapping
-                using D_f = hn::ScalableTag<float>;
-                const size_t N_f = hn::Lanes(D_f());
-                if (!(context.block.spatial_size & (N_f - 1)))
-                    AccumulateOverlap(dftr + pos * context.derived.block_area, context.coefficients.window.data() + pos * context.derived.block_area, ebuff + pending_batch.y * ebpStride + block_x, context.block.spatial_size, ebpStride);
-                else
-                    AccumulateOverlapPartial(dftr + pos * context.derived.block_area, context.coefficients.window.data() + pos * context.derived.block_area, ebuff + pending_batch.y * ebpStride + block_x, context.block.spatial_size, ebpStride);
-            }
-            else
-                ebuff[(pending_batch.y + context.derived.spatial_center) * ebpStride + block_x + context.derived.spatial_center] = dftr[pos * context.derived.block_area + context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center] * context.coefficients.window.data()[pos * context.derived.block_area + context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center];
-        }
-    };
-
-    int active_slot = 0;
-    for (int y = 0; y < eheight; y += context.derived.step) {
-        for (int x = 0; x <= width - context.block.spatial_size;) {
-            float* active_dftr = real_slot(active_slot);
-            auto* active_dftc = complex_slot(dftc_base, active_slot);
-            batch.count = 0;
-            for (; batch.count < batch_capacity && x <= width - context.block.spatial_size; ++batch.count, x += context.derived.step) {
-                float* dftr = dft_real_batch_data(active_dftr, real_stride, batch.count);
-                batch.x_offsets[static_cast<std::size_t>(batch.count)] = x;
-                for (int z = 0; z < context.block.temporal_size; z++)
-                    LoadWindowedBlock(srcp[z] + x, context.coefficients.window.data() + context.derived.block_area * z, dftr + context.derived.block_area * z, srcStride, context.block.spatial_size, context.sample.divisor);
+                if (context.block.zero_mean)
+                    AddMeanHighway(complex_float_data(dftc), context.derived.coefficient_count, complex_float_data(dftc2));
             }
 
-            auto forward = context.fft.backend->submit_r2c(
-                context.fft.forward,
-                neo_dfttest::fft::R2CBatch{
-                    neo_dfttest::fft::RealBatchView{active_dftr, real_stride, neo_dfttest::fft::MemoryDomain::host},
-                    neo_dfttest::fft::ComplexBatchView{active_dftc, complex_stride, neo_dfttest::fft::MemoryDomain::host},
-                    batch.count,
+            context.fft.backend->submit_c2r(
+                context.fft.inverse,
+                neo_dfttest::fft::C2RBatch{
+                    neo_dfttest::fft::ComplexBatchView{ready.coefficients, ready.complex_stride, neo_dfttest::fft::MemoryDomain::host},
+                    neo_dfttest::fft::RealBatchView{ready.real, ready.real_stride, neo_dfttest::fft::MemoryDomain::host},
+                    ready.batch.count,
                 }
-            );
+            ).wait();
 
-            if (pending) {
-                consume_pending(*pending);
+            for (int index = 0; index < ready.batch.count; ++index) {
+                float* dftr = dft_real_batch_data(ready.real, ready.real_stride, index);
+                const int block_x = ready.batch.x_offsets[static_cast<std::size_t>(index)];
+                if (context.derived.transform_type & 1) { // spatial overlapping
+                    using D_f = hn::ScalableTag<float>;
+                    const size_t N_f = hn::Lanes(D_f());
+                    if (!(context.block.spatial_size & (N_f - 1)))
+                        AccumulateOverlap(dftr + pos * context.derived.block_area, context.coefficients.window.data() + pos * context.derived.block_area, ebuff + ready.y * ebpStride + block_x, context.block.spatial_size, ebpStride);
+                    else
+                        AccumulateOverlapPartial(dftr + pos * context.derived.block_area, context.coefficients.window.data() + pos * context.derived.block_area, ebuff + ready.y * ebpStride + block_x, context.block.spatial_size, ebpStride);
+                }
+                else
+                    ebuff[(ready.y + context.derived.spatial_center) * ebpStride + block_x + context.derived.spatial_center] = dftr[pos * context.derived.block_area + context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center] * context.coefficients.window.data()[pos * context.derived.block_area + context.derived.spatial_center * context.block.spatial_size + context.derived.spatial_center];
             }
-            pending.emplace(PendingTemporalBatch{batch, y, active_slot, std::move(forward)});
-            active_slot = 1 - active_slot;
         }
-
-        for (int q = 0; q < context.block.temporal_size; q++)
-            srcp[q] += srcStride * context.derived.step;
-    }
-    if (pending) {
-        consume_pending(*pending);
-    }
+    );
 
     int dstWidth = context.planes.width[plane];
     int dstHeight = context.planes.height[plane];
