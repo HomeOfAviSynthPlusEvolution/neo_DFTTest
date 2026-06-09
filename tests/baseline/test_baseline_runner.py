@@ -106,6 +106,42 @@ class ScriptRenderingTests(unittest.TestCase):
 
         self.assertIn('src = BlankClip(width=64, height=48, length=9, pixel_type="Y8", color_yuv=$404040)', script)
 
+class VapourSynthSourceSelectionTests(unittest.TestCase):
+    class SourceNamespace:
+        def __init__(self, marker):
+            self.marker = marker
+
+        def Source(self, source):
+            return ("ffms2", self.marker, source)
+
+        def LibavSMASHSource(self, source):
+            return ("lsmas", self.marker, source)
+
+    def test_selects_ffms2_before_lsmas_when_both_are_available(self):
+        core = type("Core", (), {})()
+        core.ffms2 = self.SourceNamespace("a")
+        core.lsmas = self.SourceNamespace("b")
+        source = {"type": "ffms2", "resolved_path": "/tmp/source.mp4"}
+
+        clip = baseline_runner._vs_source_clip(core, object(), source)
+
+        self.assertEqual(clip, ("ffms2", "a", "/tmp/source.mp4"))
+
+    def test_falls_back_to_lsmas_when_ffms2_is_not_available(self):
+        core = type("Core", (), {})()
+        core.lsmas = self.SourceNamespace("b")
+        source = {"type": "ffms2", "resolved_path": "/tmp/source.mp4"}
+
+        clip = baseline_runner._vs_source_clip(core, object(), source)
+
+        self.assertEqual(clip, ("lsmas", "b", "/tmp/source.mp4"))
+
+    def test_raises_clear_error_when_no_media_source_filter_is_available(self):
+        source = {"type": "ffms2", "resolved_path": "/tmp/source.mp4"}
+
+        with self.assertRaisesRegex(RuntimeError, "no supported VapourSynth source filter found"):
+            baseline_runner._vs_source_clip(type("Core", (), {})(), object(), source)
+
 
 if __name__ == "__main__":
     unittest.main()

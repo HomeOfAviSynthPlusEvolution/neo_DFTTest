@@ -98,7 +98,18 @@ def _render_vs_source_lines(source: dict) -> list[str]:
             )
         ]
     if source["type"] == "ffms2":
-        return [f"src = core.ffms2.Source(source={json.dumps(_source_path(source))})"]
+        path = json.dumps(_source_path(source))
+        return [
+            'if hasattr(core, "ffms2"):',
+            f"    src = core.ffms2.Source(source={path})",
+            'elif hasattr(core, "lsmas"):',
+            f"    src = core.lsmas.LibavSMASHSource(source={path})",
+            "else:",
+            "    raise RuntimeError("
+            "\"no supported VapourSynth source filter found; tried core.ffms2.Source "
+            "and core.lsmas.LibavSMASHSource\""
+            ")",
+        ]
     raise ValueError(f"unsupported source type: {source['type']}")
 
 
@@ -117,7 +128,15 @@ def _render_avs_source_lines(source: dict) -> list[str]:
             )
         ]
     if source["type"] == "ffms2":
-        return [f"src = FFVideoSource({json.dumps(_source_path(source))})"]
+        path = json.dumps(_source_path(source))
+        return [
+            'src = FunctionExists("FFVideoSource") '
+            f"? FFVideoSource({path}) "
+            f': FunctionExists("LSMASHVideoSource") '
+            f"? LSMASHVideoSource({path}) "
+            ': Assert(false, "no supported AviSynth source filter found; '
+            'tried FFVideoSource and LSMASHVideoSource")',
+        ]
     raise ValueError(f"unsupported source type: {source['type']}")
 
 
@@ -212,7 +231,15 @@ def _vs_source_clip(core, vs, source: dict):
             color=_source_value(source, "vs", "color"),
         )
     if source["type"] == "ffms2":
-        return core.ffms2.Source(source=_source_path(source))
+        path = _source_path(source)
+        if hasattr(core, "ffms2"):
+            return core.ffms2.Source(source=path)
+        if hasattr(core, "lsmas"):
+            return core.lsmas.LibavSMASHSource(source=path)
+        raise RuntimeError(
+            "no supported VapourSynth source filter found; tried "
+            "core.ffms2.Source and core.lsmas.LibavSMASHSource"
+        )
     raise ValueError(f"unsupported source type: {source['type']}")
 
 
