@@ -200,12 +200,12 @@ public:
   }
 
   [[nodiscard]] std::mutex& submission_mutex() const noexcept override {
-    return mutex;
+    return submission_mutex_;
   }
 
-  mutable std::mutex mutex;
-
 private:
+  mutable std::mutex submission_mutex_;
+
   struct DeviceCandidate {
     VkPhysicalDevice device {VK_NULL_HANDLE};
     std::uint32_t queue_family_index {0};
@@ -365,7 +365,7 @@ public:
   }
 
   void submit_r2c(R2CBatch batch) const {
-    std::lock_guard lock(context_->mutex);
+    std::lock_guard lock(context_->submission_mutex());
     zero_buffer();
 
     auto* mapped = static_cast<Real*>(buffer_.map());
@@ -380,7 +380,7 @@ public:
   }
 
   void submit_c2r(C2RBatch batch) const {
-    std::lock_guard lock(context_->mutex);
+    std::lock_guard lock(context_->submission_mutex());
     zero_buffer();
 
     auto* mapped = static_cast<Complex*>(buffer_.map());
@@ -395,7 +395,7 @@ public:
   }
 
   void submit_r2c_device(R2CBatch batch) const {
-    std::lock_guard lock(context_->mutex);
+    std::lock_guard lock(context_->submission_mutex());
     const VkBuffer input = vk_buffer(batch.input.device, buffer_size_, "r2c input");
     const VkBuffer output = vk_buffer(batch.output.device, buffer_size_, "r2c output");
     if (input != output) {
@@ -405,7 +405,7 @@ public:
   }
 
   void submit_c2r_device(C2RBatch batch) const {
-    std::lock_guard lock(context_->mutex);
+    std::lock_guard lock(context_->submission_mutex());
     const VkBuffer input = vk_buffer(batch.input.device, buffer_size_, "c2r input");
     const VkBuffer output = vk_buffer(batch.output.device, buffer_size_, "c2r output");
     if (input != output) {
