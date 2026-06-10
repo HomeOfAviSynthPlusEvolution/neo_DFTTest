@@ -1,0 +1,50 @@
+#version 450
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, std430) readonly buffer InverseBuffer {
+  float inverse_values[];
+};
+
+layout(set = 0, binding = 1, std430) readonly buffer WindowBuffer {
+  float window_values[];
+};
+
+layout(set = 0, binding = 2, std430) buffer AccumulationBuffer {
+  float accumulation_values[];
+};
+
+layout(push_constant) uniform AccumulateInverseParams {
+  uint inverse_offset;
+  uint inverse_stride;
+  uint window_offset;
+  uint accumulation_offset;
+  uint accumulation_stride;
+  uint block_size;
+  uint transform_type;
+  uint spatial_center;
+} params;
+
+void main() {
+  uint x = gl_GlobalInvocationID.x;
+  uint y = gl_GlobalInvocationID.y;
+  if (x >= params.block_size || y >= params.block_size) {
+    return;
+  }
+
+  if ((params.transform_type & 1u) == 0u) {
+    if (x != params.spatial_center || y != params.spatial_center) {
+      return;
+    }
+    uint center_index = params.spatial_center * params.block_size + params.spatial_center;
+    uint inverse_index = params.inverse_offset + params.spatial_center * params.inverse_stride + params.spatial_center;
+    uint output_index = params.accumulation_offset + params.spatial_center * params.accumulation_stride + params.spatial_center;
+    accumulation_values[output_index] = inverse_values[inverse_index] * window_values[params.window_offset + center_index];
+    return;
+  }
+
+  uint compact_index = y * params.block_size + x;
+  uint inverse_index = params.inverse_offset + y * params.inverse_stride + x;
+  uint output_index = params.accumulation_offset + y * params.accumulation_stride + x;
+  accumulation_values[output_index] += inverse_values[inverse_index] * window_values[params.window_offset + compact_index];
+}

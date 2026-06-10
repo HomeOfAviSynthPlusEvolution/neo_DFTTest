@@ -27,6 +27,10 @@ constexpr std::uint32_t kFrequencyOpsSpv[] = {
 #include "neo_dfttest/frequency_ops_comp_spv.inc"
 };
 
+constexpr std::uint32_t kAccumulateInverseSpv[] = {
+#include "neo_dfttest/accumulate_inverse_comp_spv.inc"
+};
+
 [[nodiscard]] VkDeviceSize checked_bytes(std::size_t count, std::size_t element_size, const char* name) {
   if (count == 0) {
     return 1;
@@ -63,7 +67,7 @@ constexpr std::uint32_t kFrequencyOpsSpv[] = {
   for (int plane = 0; plane < context.format.num_planes; ++plane) {
     elements = std::max(
       elements,
-      static_cast<std::size_t>(context.planes.e_stride[plane] / static_cast<int>(sizeof(float))) *
+      static_cast<std::size_t>(context.planes.e_stride[plane]) *
         static_cast<std::size_t>(context.planes.pad_height[plane])
     );
   }
@@ -200,6 +204,19 @@ struct FrequencyOpsPushConstants {
 };
 
 static_assert(sizeof(FrequencyOpsPushConstants) == 32);
+
+struct AccumulateInversePushConstants {
+  std::uint32_t inverse_offset {0};
+  std::uint32_t inverse_stride {0};
+  std::uint32_t window_offset {0};
+  std::uint32_t accumulation_offset {0};
+  std::uint32_t accumulation_stride {0};
+  std::uint32_t block_size {0};
+  std::uint32_t transform_type {0};
+  std::uint32_t spatial_center {0};
+};
+
+static_assert(sizeof(AccumulateInversePushConstants) == 32);
 
 class VulkanDftWorkspace final {
 public:
@@ -472,6 +489,36 @@ private:
   vulkan::ComputePipeline pipeline_;
 };
 
+class VulkanAccumulateInverseKernel final {
+public:
+  explicit VulkanAccumulateInverseKernel(fft::VulkanRuntime& runtime)
+    : pipeline_(
+        runtime,
+        std::span<const std::uint32_t>{kAccumulateInverseSpv, sizeof(kAccumulateInverseSpv) / sizeof(kAccumulateInverseSpv[0])},
+        3,
+        sizeof(AccumulateInversePushConstants)
+      ) {}
+
+  void dispatch(
+    fft::DeviceBufferView inverse,
+    fft::DeviceBufferView window,
+    fft::DeviceBufferView accumulation,
+    const AccumulateInversePushConstants& constants
+  ) const {
+    const std::array<fft::DeviceBufferView, 3> buffers {inverse, window, accumulation};
+    pipeline_.dispatch(
+      buffers,
+      &constants,
+      sizeof(constants),
+      ceil_div_u32(static_cast<int>(constants.block_size), 16),
+      ceil_div_u32(static_cast<int>(constants.block_size), 16)
+    );
+  }
+
+private:
+  vulkan::ComputePipeline pipeline_;
+};
+
 } // namespace
 
 class VulkanDftExecutor final : public DftExecutor {
@@ -485,6 +532,7 @@ public:
     coefficients_ = std::make_unique<VulkanDftCoefficientCache>(*runtime_);
     load_window_ = std::make_unique<VulkanLoadWindowKernel>(*runtime_);
     frequency_ops_ = std::make_unique<VulkanFrequencyOpsKernel>(*runtime_);
+    accumulate_inverse_ = std::make_unique<VulkanAccumulateInverseKernel>(*runtime_);
   }
 
   [[nodiscard]] DftExecutorCapabilities capabilities() const noexcept override {
@@ -613,6 +661,7 @@ private:
       request.source,
       static_cast<VkDeviceSize>(request.context.planes.pad_block_size[request.plane])
     );
+    fft::clear_vulkan_buffer_view(*runtime_, workspace.accumulation());
 
     stage_forward_batches(
       workspace,
@@ -630,6 +679,19 @@ private:
           batch_output_offset(workspace, batch_index),
           slot
         );
+      },
+      [&](int y, int x, int batch_index, int slot) {
+        accumulate_inverse_block(
+          workspace,
+          request.context,
+          request.plane,
+          slot,
+          batch_index,
+          0,
+          0,
+          y,
+          x
+        );
       }
     );
   }
@@ -642,6 +704,7 @@ private:
         request.context.planes.pad_block_size[request.plane] * request.context.block.temporal_size
       )
     );
+    fft::clear_vulkan_buffer_view(*runtime_, workspace.accumulation());
 
     stage_forward_batches(
       workspace,
@@ -673,16 +736,37 @@ private:
             slot
           );
         }
+      },
+      [&](int y, int x, int batch_index, int slot) {
+        const std::size_t inverse_temporal_offset =
+          static_cast<std::size_t>(request.temporal_position) *
+          static_cast<std::size_t>(request.context.block.spatial_size + 2) *
+          static_cast<std::size_t>(request.context.block.spatial_size);
+        const std::size_t window_temporal_offset =
+          static_cast<std::size_t>(request.temporal_position) *
+          static_cast<std::size_t>(request.context.derived.block_area);
+        accumulate_inverse_block(
+          workspace,
+          request.context,
+          request.plane,
+          slot,
+          batch_index,
+          inverse_temporal_offset,
+          window_temporal_offset,
+          y,
+          x
+        );
       }
     );
   }
 
-  template<typename LoadBatchBlock>
+  template<typename LoadBatchBlock, typename AccumulateBatchBlock>
   void stage_forward_batches(
     VulkanDftWorkspace& workspace,
     int plane,
     const DFTKernelContext& context,
-    LoadBatchBlock&& load_batch_block
+    LoadBatchBlock&& load_batch_block,
+    AccumulateBatchBlock&& accumulate_batch_block
   ) {
     const int width = context.planes.pad_width[plane];
     const int eheight = context.planes.e_height[plane];
@@ -714,6 +798,11 @@ private:
 
         DftFftOperations{context}.submit_forward(real, coefficients).wait();
         apply_frequency_ops(coefficients, workspace.removed_mean_batch(active_slot, batch.count), context);
+        DftFftOperations{context}.submit_inverse(coefficients, real).wait();
+        for (int index = 0; index < batch.count; ++index) {
+          const DFTBlockJob& job = dft_block_job(batch, index);
+          accumulate_batch_block(job.y, job.x, index, active_slot);
+        }
         active_slot = 1 - active_slot;
       }
     }
@@ -755,6 +844,41 @@ private:
 
   [[nodiscard]] std::size_t batch_output_offset(VulkanDftWorkspace& workspace, int batch_index) const noexcept {
     return static_cast<std::size_t>(workspace.fft_storage_stride()) * static_cast<std::size_t>(batch_index);
+  }
+
+  void accumulate_inverse_block(
+    VulkanDftWorkspace& workspace,
+    const DFTKernelContext& context,
+    int plane,
+    int slot,
+    int batch_index,
+    std::size_t inverse_temporal_offset,
+    std::size_t window_offset,
+    int y,
+    int x
+  ) {
+    const std::size_t inverse_offset = batch_output_offset(workspace, batch_index) + inverse_temporal_offset;
+    const std::size_t accumulation_offset =
+      static_cast<std::size_t>(y) * static_cast<std::size_t>(context.planes.e_stride[plane]) +
+      static_cast<std::size_t>(x);
+
+    const AccumulateInversePushConstants constants {
+      checked_u32(inverse_offset, "inverse offset"),
+      static_cast<std::uint32_t>(context.block.spatial_size + 2),
+      checked_u32(window_offset, "window offset"),
+      checked_u32(accumulation_offset, "accumulation offset"),
+      static_cast<std::uint32_t>(context.planes.e_stride[plane]),
+      static_cast<std::uint32_t>(context.block.spatial_size),
+      static_cast<std::uint32_t>(context.derived.transform_type),
+      static_cast<std::uint32_t>(context.derived.spatial_center)
+    };
+
+    accumulate_inverse_->dispatch(
+      workspace.fft_real_batch(slot, 1).device,
+      coefficients_->window(),
+      workspace.accumulation(),
+      constants
+    );
   }
 
   void dispatch_load_window(
@@ -835,6 +959,7 @@ private:
   std::unique_ptr<VulkanDftCoefficientCache> coefficients_;
   std::unique_ptr<VulkanLoadWindowKernel> load_window_;
   std::unique_ptr<VulkanFrequencyOpsKernel> frequency_ops_;
+  std::unique_ptr<VulkanAccumulateInverseKernel> accumulate_inverse_;
   std::unique_ptr<DftExecutor> fallback_;
   std::mutex workspaces_mutex_;
   std::mutex coefficients_mutex_;
