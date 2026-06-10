@@ -3,6 +3,7 @@
 #include "dft_common.h"
 #include "workspace/dft_workspace.hpp"
 
+#include <array>
 #include <memory>
 
 namespace neo_dfttest {
@@ -38,6 +39,22 @@ struct DftProcessTemporalRequest {
   const DFTKernelContext& context;
 };
 
+enum class DftProcessMode {
+  spatial,
+  temporal,
+};
+
+struct DftProcessRequest {
+  DftWorkspaceLease workspace;
+  int plane {0};
+  DftProcessMode mode {DftProcessMode::spatial};
+  std::array<DFTPlaneBytes, kMaxDftTemporalFrames> sources {};
+  int source_count {0};
+  DFTMutablePlaneBytes destination;
+  int temporal_position {0};
+  const DFTKernelContext& context;
+};
+
 class DftExecutor {
 public:
   virtual ~DftExecutor() = default;
@@ -49,6 +66,7 @@ public:
   ) const noexcept = 0;
 
   virtual void copy_pad(DftCopyPadRequest request) = 0;
+  virtual void process(DftProcessRequest request) = 0;
   virtual void process_spatial(DftProcessSpatialRequest request) = 0;
   virtual void process_temporal(DftProcessTemporalRequest request) = 0;
 };

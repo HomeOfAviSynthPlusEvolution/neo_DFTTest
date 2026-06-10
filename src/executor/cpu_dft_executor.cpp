@@ -36,6 +36,47 @@ public:
     copy_pad_(request.plane, request.source, request.destination, request.context);
   }
 
+  void process(DftProcessRequest request) override {
+    if (request.source_count <= 0 || request.source_count > kMaxDftTemporalFrames) {
+      throw std::runtime_error("CPU DFT executor received an invalid source frame count");
+    }
+
+    const int pad_block_size = request.context.planes.pad_block_size[request.plane];
+    const int pad_stride = request.context.planes.pad_stride[request.plane];
+    AlignedBuffer<unsigned char> padded(
+      static_cast<std::size_t>(pad_block_size) * static_cast<std::size_t>(request.source_count)
+    );
+
+    for (int index = 0; index < request.source_count; ++index) {
+      copy_pad(DftCopyPadRequest{
+        request.plane,
+        request.sources[static_cast<std::size_t>(index)],
+        DFTMutablePlaneBytes{padded.data() + pad_block_size * index, pad_stride},
+        request.context
+      });
+    }
+
+    if (request.mode == DftProcessMode::spatial) {
+      process_spatial(DftProcessSpatialRequest{
+        request.workspace,
+        request.plane,
+        DFTPlaneBytes{padded.data(), pad_stride},
+        request.destination,
+        request.context
+      });
+      return;
+    }
+
+    process_temporal(DftProcessTemporalRequest{
+      request.workspace,
+      request.plane,
+      DFTPlaneBytes{padded.data(), pad_stride},
+      request.destination,
+      request.temporal_position,
+      request.context
+    });
+  }
+
   void process_spatial(DftProcessSpatialRequest request) override {
     if (!process_spatial_) {
       throw std::runtime_error("CPU DFT executor has no spatial processor");

@@ -595,22 +595,16 @@ private:
       const auto dst_plane = engine::write_plane(dst, plane, state_);
 
       if (state_.planes.process[plane] == 3) {
-        auto pad = detail::make_aligned_buffer<unsigned char>(
-          state_.planes.pad_block_size[plane] * state_.block.temporal_size,
-          "pad0"
-        );
-        const DFTMutablePlaneBytes padded_plane{pad.data(), state_.planes.pad_stride[plane]};
-        executor_->copy_pad(DftCopyPadRequest{
-          plane,
-          DFTPlaneBytes{src_plane.data, src_plane.stride_bytes},
-          padded_plane,
-          kernel_context
-        });
-        executor_->process_spatial(DftProcessSpatialRequest{
+        std::array<DFTPlaneBytes, kMaxDftTemporalFrames> sources {};
+        sources[0] = DFTPlaneBytes{src_plane.data, src_plane.stride_bytes};
+        executor_->process(DftProcessRequest{
           workspace,
           plane,
-          DFTPlaneBytes{padded_plane.data, padded_plane.stride_bytes},
+          DftProcessMode::spatial,
+          sources,
+          1,
           DFTMutablePlaneBytes{dst_plane.data, dst_plane.stride_bytes},
+          0,
           kernel_context
         });
       } else if (state_.planes.process[plane] == 2) {
@@ -634,10 +628,7 @@ private:
       const auto dst_plane = engine::write_plane(dst, plane, state_);
 
       if (state_.planes.process[plane] == 3) {
-        auto pad0 = detail::make_aligned_buffer<unsigned char>(
-          state_.planes.pad_block_size[plane] * state_.block.temporal_size,
-          "pad0"
-        );
+        std::array<DFTPlaneBytes, kMaxDftTemporalFrames> sources {};
 
         for (int i = 0; i < state_.block.temporal_size; i++) {
           const int fn = i + n - pos;
@@ -648,19 +639,15 @@ private:
           }
 
           const auto src_plane = engine::read_plane(src_frame.value().frame, plane, state_);
-          auto* pad = pad0.data() + state_.planes.pad_block_size[plane] * i;
-          executor_->copy_pad(DftCopyPadRequest{
-            plane,
-            DFTPlaneBytes{src_plane.data, src_plane.stride_bytes},
-            DFTMutablePlaneBytes{pad, state_.planes.pad_stride[plane]},
-            kernel_context
-          });
+          sources[static_cast<std::size_t>(i)] = DFTPlaneBytes{src_plane.data, src_plane.stride_bytes};
         }
 
-        executor_->process_temporal(DftProcessTemporalRequest{
+        executor_->process(DftProcessRequest{
           workspace,
           plane,
-          DFTPlaneBytes{pad0.data(), state_.planes.pad_stride[plane]},
+          DftProcessMode::temporal,
+          sources,
+          state_.block.temporal_size,
           DFTMutablePlaneBytes{dst_plane.data, dst_plane.stride_bytes},
           pos,
           kernel_context

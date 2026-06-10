@@ -204,6 +204,7 @@ inline int dft_scratch_complex_stride(const DFTDerivedGeometry& derived) noexcep
 
 constexpr int kMaxDftFftBatchSlots = 16;
 constexpr int kDftFftPipelineSlots = 2;
+constexpr int kMaxDftTemporalFrames = 15;
 
 struct DFTBatchPolicy {
     int cpu_worker_threads {1};
