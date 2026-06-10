@@ -20,6 +20,7 @@ struct ComputeDispatch {
   std::uint32_t groups_x {1};
   std::uint32_t groups_y {1};
   std::uint32_t groups_z {1};
+  bool barrier_after {false};
 };
 
 class ComputePipeline final {

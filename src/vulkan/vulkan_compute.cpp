@@ -155,7 +155,8 @@ void ComputePipeline::dispatch(
     push_constant_bytes,
     groups_x,
     groups_y,
-    groups_z
+    groups_z,
+    false
   };
   dispatch_many(storage_buffers, std::span<const ComputeDispatch>{&dispatch, 1});
 }
@@ -264,6 +265,23 @@ void ComputePipeline::dispatch_many(
           );
         }
         vkCmdDispatch(command_buffer, dispatch.groups_x, dispatch.groups_y, dispatch.groups_z);
+        if (dispatch.barrier_after) {
+          VkMemoryBarrier between_dispatches {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+          between_dispatches.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+          between_dispatches.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+          vkCmdPipelineBarrier(
+            command_buffer,
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            0,
+            1,
+            &between_dispatches,
+            0,
+            nullptr,
+            0,
+            nullptr
+          );
+        }
       }
 
       VkMemoryBarrier after_dispatch {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
