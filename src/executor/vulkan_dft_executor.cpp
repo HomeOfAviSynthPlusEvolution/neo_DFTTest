@@ -729,6 +729,17 @@ public:
       throw std::runtime_error("Vulkan DFT executor cannot run random dither without a host RNG");
     }
 
+    if (request.mode == DftProcessMode::spatial) {
+      process_spatial(DftProcessSpatialRequest{
+        request.workspace,
+        request.plane,
+        request.sources[0],
+        request.destination,
+        request.context
+      });
+      return;
+    }
+
     const std::size_t source_frame_bytes = source_upload_bytes(request.sources[0], request.plane, request.context);
     AlignedBuffer<unsigned char> source_upload(source_frame_bytes * static_cast<std::size_t>(request.source_count));
 
@@ -739,17 +750,6 @@ public:
         throw std::runtime_error("Vulkan DFT executor received inconsistent source frame strides");
       }
       std::memcpy(source_upload.data() + source_frame_bytes * static_cast<std::size_t>(index), source.data, bytes);
-    }
-
-    if (request.mode == DftProcessMode::spatial) {
-      process_spatial(DftProcessSpatialRequest{
-        request.workspace,
-        request.plane,
-        DFTPlaneBytes{source_upload.data(), request.sources[0].stride_bytes},
-        request.destination,
-        request.context
-      });
-      return;
     }
 
     process_temporal(DftProcessTemporalRequest{
