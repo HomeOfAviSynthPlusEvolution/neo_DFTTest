@@ -52,7 +52,13 @@ float read_sample(uint byte_offset) {
 void main() {
   uint x = gl_GlobalInvocationID.x;
   uint y = gl_GlobalInvocationID.y;
-  if (x >= params.block_size || y >= params.block_size) {
+  if (x >= params.output_stride || y >= params.block_size) {
+    return;
+  }
+
+  uint output_index = params.output_offset + y * params.output_stride + x;
+  if (x >= params.block_size) {
+    output_values[output_index] = 0.0;
     return;
   }
 
@@ -62,6 +68,5 @@ void main() {
     (params.source_y + y) * params.source_stride_bytes +
     (params.source_x + x) * sample_bytes;
   uint window_index = params.window_offset + y * params.block_size + x;
-  uint output_index = params.output_offset + y * params.output_stride + x;
   output_values[output_index] = read_sample(source_offset) * window_values[window_index];
 }

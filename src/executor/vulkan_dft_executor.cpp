@@ -1,5 +1,6 @@
 #include "executor/dft_executor.hpp"
 
+#include "executor/dft_fft_operation.hpp"
 #include "fft/vkfft_vulkan_buffer.hpp"
 #include "vulkan/vulkan_compute.hpp"
 
@@ -135,6 +136,13 @@ struct VulkanDftCoefficientShape {
   return static_cast<std::uint32_t>((value + divisor - 1) / divisor);
 }
 
+[[nodiscard]] std::uint32_t checked_u32(std::size_t value, const char* name) {
+  if (value > std::numeric_limits<std::uint32_t>::max()) {
+    throw std::runtime_error(std::string("Vulkan load-window value is too large for ") + name);
+  }
+  return static_cast<std::uint32_t>(value);
+}
+
 struct LoadWindowPushConstants {
   std::uint32_t source_base_bytes {0};
   std::uint32_t source_stride_bytes {0};
@@ -165,27 +173,31 @@ public:
     }
 
     padded_frame_ = make_workspace_buffer(*runtime_, next.padded_frame_bytes);
-    fft_storage_ = make_workspace_buffer(
-      *runtime_,
-      checked_bytes(
-        static_cast<std::size_t>(next.fft_storage_stride) * static_cast<std::size_t>(next.scratch_slots),
-        sizeof(float),
-        "FFT storage"
-      )
+    const VkDeviceSize fft_storage_bytes = checked_bytes(
+      static_cast<std::size_t>(next.fft_storage_stride) * static_cast<std::size_t>(next.batch_capacity),
+      sizeof(float),
+      "FFT storage"
     );
-    removed_mean_ = make_workspace_buffer(
-      *runtime_,
-      checked_bytes(
-        static_cast<std::size_t>(next.complex_stride) * static_cast<std::size_t>(next.scratch_slots),
-        sizeof(fft::Complex),
-        "removed mean"
-      )
+    const VkDeviceSize removed_mean_bytes = checked_bytes(
+      static_cast<std::size_t>(next.complex_stride) * static_cast<std::size_t>(next.batch_capacity),
+      sizeof(fft::Complex),
+      "removed mean"
     );
+    for (auto& buffer : fft_storage_) {
+      buffer = make_workspace_buffer(*runtime_, fft_storage_bytes);
+    }
+    for (auto& buffer : removed_mean_) {
+      buffer = make_workspace_buffer(*runtime_, removed_mean_bytes);
+    }
     accumulation_ = make_workspace_buffer(*runtime_, next.accumulation_bytes);
 
     fft::clear_vulkan_buffer(*runtime_, padded_frame_);
-    fft::clear_vulkan_buffer(*runtime_, fft_storage_);
-    fft::clear_vulkan_buffer(*runtime_, removed_mean_);
+    for (auto& buffer : fft_storage_) {
+      fft::clear_vulkan_buffer(*runtime_, buffer);
+    }
+    for (auto& buffer : removed_mean_) {
+      fft::clear_vulkan_buffer(*runtime_, buffer);
+    }
     fft::clear_vulkan_buffer(*runtime_, accumulation_);
 
     shape_ = next;
@@ -221,38 +233,20 @@ public:
   }
 
 private:
-  [[nodiscard]] std::size_t fft_slot_bytes() const noexcept {
-    return static_cast<std::size_t>(shape_.fft_storage_stride) *
-      static_cast<std::size_t>(shape_.batch_capacity) *
-      sizeof(float);
-  }
-
-  [[nodiscard]] std::size_t complex_slot_bytes() const noexcept {
-    return static_cast<std::size_t>(shape_.complex_stride) *
-      static_cast<std::size_t>(shape_.batch_capacity) *
-      sizeof(fft::Complex);
-  }
-
   [[nodiscard]] fft::DeviceBufferView fft_storage_view(int slot) const noexcept {
-    auto view = fft_storage_.view();
-    view.offset_bytes = fft_slot_bytes() * static_cast<std::size_t>(slot);
-    view.size_bytes = fft_slot_bytes();
-    return view;
+    return fft_storage_[static_cast<std::size_t>(slot)].view();
   }
 
   [[nodiscard]] fft::DeviceBufferView removed_mean_view(int slot) const noexcept {
-    auto view = removed_mean_.view();
-    view.offset_bytes = complex_slot_bytes() * static_cast<std::size_t>(slot);
-    view.size_bytes = complex_slot_bytes();
-    return view;
+    return removed_mean_[static_cast<std::size_t>(slot)].view();
   }
 
   fft::VulkanRuntime* runtime_ {nullptr};
   VulkanDftWorkspaceShape shape_;
   bool ready_ {false};
   fft::VulkanDeviceBuffer padded_frame_;
-  fft::VulkanDeviceBuffer fft_storage_;
-  fft::VulkanDeviceBuffer removed_mean_;
+  std::array<fft::VulkanDeviceBuffer, kDftFftPipelineSlots> fft_storage_;
+  std::array<fft::VulkanDeviceBuffer, kDftFftPipelineSlots> removed_mean_;
   fft::VulkanDeviceBuffer accumulation_;
 };
 
@@ -377,7 +371,7 @@ public:
       buffers,
       &constants,
       sizeof(constants),
-      ceil_div_u32(static_cast<int>(constants.block_size), 16),
+      ceil_div_u32(static_cast<int>(constants.output_stride), 16),
       ceil_div_u32(static_cast<int>(constants.block_size), 16)
     );
   }
@@ -488,12 +482,13 @@ public:
 
   void process_spatial(DftProcessSpatialRequest request) override {
     VulkanDftWorkspace& workspace = prepare_workspace(request.workspace, request.context);
-    stage_spatial_load(workspace, request);
+    stage_spatial_forward_batches(workspace, request);
     fallback_->process_spatial(request);
   }
 
   void process_temporal(DftProcessTemporalRequest request) override {
-    prepare_workspace(request.workspace, request.context);
+    VulkanDftWorkspace& workspace = prepare_workspace(request.workspace, request.context);
+    stage_temporal_forward_batches(workspace, request);
     fallback_->process_temporal(request);
   }
 
@@ -510,32 +505,160 @@ private:
     coefficients_->ensure(context);
   }
 
-  void stage_spatial_load(VulkanDftWorkspace& workspace, const DftProcessSpatialRequest& request) {
-    const int source_bytes = request.context.planes.pad_block_size[request.plane];
+  void upload_padded_source(VulkanDftWorkspace& workspace, DFTPlaneBytes source, VkDeviceSize source_bytes) {
     fft::upload_to_vulkan_buffer(
       *runtime_,
       workspace.padded_frame_buffer(),
-      request.source.data,
-      static_cast<VkDeviceSize>(source_bytes)
+      source.data,
+      source_bytes
+    );
+  }
+
+  void stage_spatial_forward_batches(VulkanDftWorkspace& workspace, const DftProcessSpatialRequest& request) {
+    upload_padded_source(
+      workspace,
+      request.source,
+      static_cast<VkDeviceSize>(request.context.planes.pad_block_size[request.plane])
     );
 
+    stage_forward_batches(
+      workspace,
+      request.plane,
+      request.context,
+      [&](int y, int x, int batch_index, int slot) {
+        dispatch_load_window(
+          workspace,
+          request.context,
+          request.source.stride_bytes,
+          0,
+          x,
+          y,
+          0,
+          batch_output_offset(workspace, batch_index),
+          slot
+        );
+      }
+    );
+  }
+
+  void stage_temporal_forward_batches(VulkanDftWorkspace& workspace, const DftProcessTemporalRequest& request) {
+    upload_padded_source(
+      workspace,
+      request.source,
+      static_cast<VkDeviceSize>(
+        request.context.planes.pad_block_size[request.plane] * request.context.block.temporal_size
+      )
+    );
+
+    stage_forward_batches(
+      workspace,
+      request.plane,
+      request.context,
+      [&](int y, int x, int batch_index, int slot) {
+        for (int z = 0; z < request.context.block.temporal_size; ++z) {
+          const std::size_t source_base =
+            static_cast<std::size_t>(request.context.planes.pad_block_size[request.plane]) *
+            static_cast<std::size_t>(z);
+          const std::size_t window_offset =
+            static_cast<std::size_t>(request.context.derived.block_area) *
+            static_cast<std::size_t>(z);
+          const std::size_t output_offset =
+            batch_output_offset(workspace, batch_index) +
+            static_cast<std::size_t>(request.context.block.spatial_size + 2) *
+            static_cast<std::size_t>(request.context.block.spatial_size) *
+            static_cast<std::size_t>(z);
+
+          dispatch_load_window(
+            workspace,
+            request.context,
+            request.source.stride_bytes,
+            source_base,
+            x,
+            y,
+            window_offset,
+            output_offset,
+            slot
+          );
+        }
+      }
+    );
+  }
+
+  template<typename LoadBatchBlock>
+  void stage_forward_batches(
+    VulkanDftWorkspace& workspace,
+    int plane,
+    const DFTKernelContext& context,
+    LoadBatchBlock&& load_batch_block
+  ) {
+    const int width = context.planes.pad_width[plane];
+    const int eheight = context.planes.e_height[plane];
+    const int batch_capacity = dft_fft_batch_capacity(context.batch_policy);
+    int active_slot = 0;
+
+    for (int y = 0; y < eheight; y += context.derived.step) {
+      for (int x = 0; x <= width - context.block.spatial_size;) {
+        DFTBlockBatch batch;
+        for (
+          ;
+          batch.count < batch_capacity && x <= width - context.block.spatial_size;
+          ++batch.count, x += context.derived.step
+        ) {
+          batch.jobs[static_cast<std::size_t>(batch.count)] = DFTBlockJob{plane, y, x, 0};
+        }
+
+        if (batch.count == 0) {
+          continue;
+        }
+
+        auto real = workspace.fft_real_batch(active_slot, batch.count);
+        auto coefficients = workspace.fft_complex_batch(active_slot, batch.count);
+
+        for (int index = 0; index < batch.count; ++index) {
+          const DFTBlockJob& job = dft_block_job(batch, index);
+          load_batch_block(job.y, job.x, index, active_slot);
+        }
+
+        DftFftOperations{context}.submit_forward(real, coefficients).wait();
+        active_slot = 1 - active_slot;
+      }
+    }
+  }
+
+  [[nodiscard]] std::size_t batch_output_offset(VulkanDftWorkspace& workspace, int batch_index) const noexcept {
+    return static_cast<std::size_t>(workspace.fft_storage_stride()) * static_cast<std::size_t>(batch_index);
+  }
+
+  void dispatch_load_window(
+    VulkanDftWorkspace& workspace,
+    const DFTKernelContext& context,
+    int source_stride_bytes,
+    std::size_t source_base_bytes,
+    int source_x,
+    int source_y,
+    std::size_t window_offset,
+    std::size_t output_offset,
+    int slot
+  ) {
+    const auto real = workspace.fft_real_batch(slot, 1);
+
     const LoadWindowPushConstants constants {
-      0,
-      static_cast<std::uint32_t>(request.source.stride_bytes),
-      0,
-      0,
-      static_cast<std::uint32_t>(request.context.block.spatial_size),
-      load_window_sample_kind(request.context.format),
-      0,
-      0,
-      static_cast<std::uint32_t>(request.context.block.spatial_size + 2),
-      request.context.sample.divisor
+      checked_u32(source_base_bytes, "source base offset"),
+      static_cast<std::uint32_t>(source_stride_bytes),
+      static_cast<std::uint32_t>(source_x),
+      static_cast<std::uint32_t>(source_y),
+      static_cast<std::uint32_t>(context.block.spatial_size),
+      load_window_sample_kind(context.format),
+      checked_u32(window_offset, "window offset"),
+      checked_u32(output_offset, "output offset"),
+      static_cast<std::uint32_t>(context.block.spatial_size + 2),
+      context.sample.divisor
     };
 
     load_window_->dispatch(
       workspace.padded_frame(),
       coefficients_->window(),
-      workspace.fft_real_batch(0, 1).device,
+      real.device,
       constants
     );
   }

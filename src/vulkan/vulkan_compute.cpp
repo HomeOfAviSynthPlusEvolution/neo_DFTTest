@@ -207,6 +207,26 @@ void ComputePipeline::dispatch(
         0,
         nullptr
       );
+
+      VkMemoryBarrier before_dispatch {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+      before_dispatch.srcAccessMask =
+        VK_ACCESS_HOST_WRITE_BIT |
+        VK_ACCESS_TRANSFER_WRITE_BIT |
+        VK_ACCESS_SHADER_WRITE_BIT;
+      before_dispatch.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+      vkCmdPipelineBarrier(
+        command_buffer,
+        VK_PIPELINE_STAGE_HOST_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        0,
+        1,
+        &before_dispatch,
+        0,
+        nullptr,
+        0,
+        nullptr
+      );
+
       vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.pipeline_);
       vkCmdBindDescriptorSets(
         command_buffer,
@@ -229,6 +249,27 @@ void ComputePipeline::dispatch(
         );
       }
       vkCmdDispatch(command_buffer, request.groups_x, request.groups_y, request.groups_z);
+
+      VkMemoryBarrier after_dispatch {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+      after_dispatch.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+      after_dispatch.dstAccessMask =
+        VK_ACCESS_HOST_READ_BIT |
+        VK_ACCESS_TRANSFER_READ_BIT |
+        VK_ACCESS_TRANSFER_WRITE_BIT |
+        VK_ACCESS_SHADER_READ_BIT |
+        VK_ACCESS_SHADER_WRITE_BIT;
+      vkCmdPipelineBarrier(
+        command_buffer,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        VK_PIPELINE_STAGE_HOST_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        0,
+        1,
+        &after_dispatch,
+        0,
+        nullptr,
+        0,
+        nullptr
+      );
     },
     &request
   );

@@ -24,6 +24,39 @@ void validate_transfer_size(VkDeviceSize size, VkDeviceSize capacity, const char
   }
 }
 
+VkDeviceSize vk_device_size(std::size_t size, const char* action) {
+  if (size > std::numeric_limits<VkDeviceSize>::max()) {
+    throw std::runtime_error(std::string(action) + ": Vulkan buffer size is too large");
+  }
+  return static_cast<VkDeviceSize>(size);
+}
+
+VkBuffer vk_view_buffer(DeviceBufferView view, const char* action) {
+  if (view.handle == nullptr) {
+    throw std::runtime_error(std::string(action) + ": missing Vulkan buffer");
+  }
+  return reinterpret_cast<VkBuffer>(view.handle);
+}
+
+VkDeviceSize vk_view_offset(DeviceBufferView view, const char* action) {
+  const VkDeviceSize offset = vk_device_size(view.offset_bytes, action);
+  if ((offset % 4u) != 0) {
+    throw std::runtime_error(std::string(action) + ": Vulkan fill offset must be 4-byte aligned");
+  }
+  return offset;
+}
+
+VkDeviceSize vk_view_range(DeviceBufferView view, const char* action) {
+  if (view.size_bytes == 0) {
+    return VK_WHOLE_SIZE;
+  }
+  const VkDeviceSize range = vk_device_size(view.size_bytes, action);
+  if ((range % 4u) != 0) {
+    throw std::runtime_error(std::string(action) + ": Vulkan fill range must be a multiple of 4 bytes");
+  }
+  return range;
+}
+
 } // namespace
 
 VulkanDeviceBuffer::VulkanDeviceBuffer(
@@ -183,20 +216,30 @@ void submit_vulkan_commands(
   vkFreeCommandBuffers(runtime.device(), runtime.command_pool(), 1, &command_buffer);
 }
 
-void clear_vulkan_buffer(VulkanRuntime& runtime, VulkanDeviceBuffer& buffer, std::uint32_t value) {
+void clear_vulkan_buffer_view(VulkanRuntime& runtime, DeviceBufferView view, std::uint32_t value) {
   struct ClearRequest {
-    VulkanDeviceBuffer* buffer;
+    DeviceBufferView view;
     std::uint32_t value;
-  } request {&buffer, value};
+  } request {view, value};
 
   submit_vulkan_commands(
     runtime,
     [](VkCommandBuffer command_buffer, void* user) {
       const auto& clear = *static_cast<ClearRequest*>(user);
-      vkCmdFillBuffer(command_buffer, clear.buffer->buffer(), 0, VK_WHOLE_SIZE, clear.value);
+      vkCmdFillBuffer(
+        command_buffer,
+        vk_view_buffer(clear.view, "clear Vulkan buffer view"),
+        vk_view_offset(clear.view, "clear Vulkan buffer view"),
+        vk_view_range(clear.view, "clear Vulkan buffer view"),
+        clear.value
+      );
     },
     &request
   );
+}
+
+void clear_vulkan_buffer(VulkanRuntime& runtime, VulkanDeviceBuffer& buffer, std::uint32_t value) {
+  clear_vulkan_buffer_view(runtime, buffer.view(), value);
 }
 
 void upload_to_vulkan_buffer(
