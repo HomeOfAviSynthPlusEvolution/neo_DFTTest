@@ -74,6 +74,7 @@ if(NEO_DFTTEST_ENABLE_VKFFT_VULKAN)
   )
   set(NEO_DFTTEST_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/neo_dfttest")
   set(NEO_DFTTEST_LOAD_WINDOW_SPV "${NEO_DFTTEST_GENERATED_DIR}/load_window_comp_spv.inc")
+  set(NEO_DFTTEST_FREQUENCY_OPS_SPV "${NEO_DFTTEST_GENERATED_DIR}/frequency_ops_comp_spv.inc")
   add_custom_command(
     OUTPUT "${NEO_DFTTEST_LOAD_WINDOW_SPV}"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${NEO_DFTTEST_GENERATED_DIR}"
@@ -81,7 +82,14 @@ if(NEO_DFTTEST_ENABLE_VKFFT_VULKAN)
     DEPENDS glslang-standalone "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/load_window.comp"
     VERBATIM
   )
-  add_custom_target(neo-dfttest-vulkan-shaders DEPENDS "${NEO_DFTTEST_LOAD_WINDOW_SPV}")
+  add_custom_command(
+    OUTPUT "${NEO_DFTTEST_FREQUENCY_OPS_SPV}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${NEO_DFTTEST_GENERATED_DIR}"
+    COMMAND $<TARGET_FILE:glslang-standalone> --quiet -V -x -S comp -o "${NEO_DFTTEST_FREQUENCY_OPS_SPV}" "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/frequency_ops.comp"
+    DEPENDS glslang-standalone "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/frequency_ops.comp"
+    VERBATIM
+  )
+  add_custom_target(neo-dfttest-vulkan-shaders DEPENDS "${NEO_DFTTEST_LOAD_WINDOW_SPV}" "${NEO_DFTTEST_FREQUENCY_OPS_SPV}")
   add_dependencies(neo-dfttest neo-dfttest-vulkan-shaders)
   target_include_directories(neo-dfttest PRIVATE
     "${CMAKE_CURRENT_BINARY_DIR}/generated"

@@ -23,6 +23,10 @@ constexpr std::uint32_t kLoadWindowSpv[] = {
 #include "neo_dfttest/load_window_comp_spv.inc"
 };
 
+constexpr std::uint32_t kFrequencyOpsSpv[] = {
+#include "neo_dfttest/frequency_ops_comp_spv.inc"
+};
+
 [[nodiscard]] VkDeviceSize checked_bytes(std::size_t count, std::size_t element_size, const char* name) {
   if (count == 0) {
     return 1;
@@ -158,6 +162,45 @@ struct LoadWindowPushConstants {
 
 static_assert(sizeof(LoadWindowPushConstants) == 40);
 
+enum class FrequencyOp : std::uint32_t {
+  remove_mean = 0,
+  filter = 1,
+  add_mean = 2,
+};
+
+[[nodiscard]] std::uint32_t filter_kind_id(DFTFilterKind kind) noexcept {
+  switch (kind) {
+    case DFTFilterKind::wiener:
+      return 0;
+    case DFTFilterKind::hard_threshold:
+      return 1;
+    case DFTFilterKind::multiplier:
+      return 2;
+    case DFTFilterKind::range_multiplier:
+      return 3;
+    case DFTFilterKind::range_wiener:
+      return 4;
+    case DFTFilterKind::wiener_power:
+      return 5;
+    case DFTFilterKind::wiener_sqrt:
+      return 6;
+  }
+  return 0;
+}
+
+struct FrequencyOpsPushConstants {
+  std::uint32_t coefficient_count {0};
+  std::uint32_t coefficient_stride {0};
+  std::uint32_t removed_mean_stride {0};
+  std::uint32_t filter_kind {0};
+  std::uint32_t operation {0};
+  std::uint32_t custom_f0_beta {0};
+  float f0_beta {1.0f};
+  std::uint32_t reserved {0};
+};
+
+static_assert(sizeof(FrequencyOpsPushConstants) == 32);
+
 class VulkanDftWorkspace final {
 public:
   explicit VulkanDftWorkspace(fft::VulkanRuntime& runtime) noexcept
@@ -290,9 +333,9 @@ public:
       sizeof(float)
     );
     window_dft_ = allocate_and_upload(
-      context.coefficients.window_dft.data,
-      context.coefficients.window_dft.size,
-      sizeof(fft::Complex)
+      complex_float_data(context.coefficients.window_dft.data),
+      context.derived.coefficient_count,
+      sizeof(float)
     );
 
     shape_ = next;
@@ -380,6 +423,55 @@ private:
   vulkan::ComputePipeline pipeline_;
 };
 
+class VulkanFrequencyOpsKernel final {
+public:
+  explicit VulkanFrequencyOpsKernel(fft::VulkanRuntime& runtime)
+    : pipeline_(
+        runtime,
+        std::span<const std::uint32_t>{kFrequencyOpsSpv, sizeof(kFrequencyOpsSpv) / sizeof(kFrequencyOpsSpv[0])},
+        7,
+        sizeof(FrequencyOpsPushConstants)
+      ) {}
+
+  void dispatch(
+    DFTMutableComplexBatchView coefficients,
+    DFTMutableComplexBatchView removed_mean,
+    const VulkanDftCoefficientCache& coefficient_tables,
+    const DFTKernelContext& context,
+    FrequencyOp operation
+  ) const {
+    const std::array<fft::DeviceBufferView, 7> buffers {
+      coefficients.device,
+      removed_mean.device,
+      coefficient_tables.window_dft(),
+      coefficient_tables.sigmas(),
+      coefficient_tables.sigmas2(),
+      coefficient_tables.pmins(),
+      coefficient_tables.pmaxs()
+    };
+    const FrequencyOpsPushConstants constants {
+      static_cast<std::uint32_t>(context.derived.coefficient_count),
+      static_cast<std::uint32_t>(coefficients.stride_elements * 2),
+      static_cast<std::uint32_t>(removed_mean.stride_elements * 2),
+      filter_kind_id(context.filter_plan.kind),
+      static_cast<std::uint32_t>(operation),
+      context.filter_plan.custom_f0_beta ? 1u : 0u,
+      context.block.f0_beta,
+      0
+    };
+    pipeline_.dispatch(
+      buffers,
+      &constants,
+      sizeof(constants),
+      ceil_div_u32(context.derived.complex_count, 256),
+      static_cast<std::uint32_t>(coefficients.count)
+    );
+  }
+
+private:
+  vulkan::ComputePipeline pipeline_;
+};
+
 } // namespace
 
 class VulkanDftExecutor final : public DftExecutor {
@@ -392,6 +484,7 @@ public:
     }
     coefficients_ = std::make_unique<VulkanDftCoefficientCache>(*runtime_);
     load_window_ = std::make_unique<VulkanLoadWindowKernel>(*runtime_);
+    frequency_ops_ = std::make_unique<VulkanFrequencyOpsKernel>(*runtime_);
   }
 
   [[nodiscard]] DftExecutorCapabilities capabilities() const noexcept override {
@@ -620,8 +713,43 @@ private:
         }
 
         DftFftOperations{context}.submit_forward(real, coefficients).wait();
+        apply_frequency_ops(coefficients, workspace.removed_mean_batch(active_slot, batch.count), context);
         active_slot = 1 - active_slot;
       }
+    }
+  }
+
+  void apply_frequency_ops(
+    DFTMutableComplexBatchView coefficients,
+    DFTMutableComplexBatchView removed_mean,
+    const DFTKernelContext& context
+  ) {
+    if (context.block.zero_mean) {
+      frequency_ops_->dispatch(
+        coefficients,
+        removed_mean,
+        *coefficients_,
+        context,
+        FrequencyOp::remove_mean
+      );
+    }
+
+    frequency_ops_->dispatch(
+      coefficients,
+      removed_mean,
+      *coefficients_,
+      context,
+      FrequencyOp::filter
+    );
+
+    if (context.block.zero_mean) {
+      frequency_ops_->dispatch(
+        coefficients,
+        removed_mean,
+        *coefficients_,
+        context,
+        FrequencyOp::add_mean
+      );
     }
   }
 
@@ -706,6 +834,7 @@ private:
   fft::VulkanRuntime* runtime_ {nullptr};
   std::unique_ptr<VulkanDftCoefficientCache> coefficients_;
   std::unique_ptr<VulkanLoadWindowKernel> load_window_;
+  std::unique_ptr<VulkanFrequencyOpsKernel> frequency_ops_;
   std::unique_ptr<DftExecutor> fallback_;
   std::mutex workspaces_mutex_;
   std::mutex coefficients_mutex_;

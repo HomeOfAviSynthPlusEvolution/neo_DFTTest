@@ -1,0 +1,107 @@
+#version 450
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, std430) buffer CoefficientBuffer {
+  float coefficients[];
+};
+
+layout(set = 0, binding = 1, std430) buffer RemovedMeanBuffer {
+  float removed_mean[];
+};
+
+layout(set = 0, binding = 2, std430) readonly buffer WindowDftBuffer {
+  float window_dft[];
+};
+
+layout(set = 0, binding = 3, std430) readonly buffer SigmasBuffer {
+  float sigmas[];
+};
+
+layout(set = 0, binding = 4, std430) readonly buffer Sigmas2Buffer {
+  float sigmas2[];
+};
+
+layout(set = 0, binding = 5, std430) readonly buffer PminsBuffer {
+  float pmins[];
+};
+
+layout(set = 0, binding = 6, std430) readonly buffer PmaxsBuffer {
+  float pmaxs[];
+};
+
+layout(push_constant) uniform FrequencyOpParams {
+  uint coefficient_count;
+  uint coefficient_stride;
+  uint removed_mean_stride;
+  uint filter_kind;
+  uint operation;
+  uint custom_f0_beta;
+  float f0_beta;
+  uint reserved;
+} params;
+
+float max0(float value) {
+  return max(value, 0.0);
+}
+
+void remove_mean_op(uint base, uint removed_base, uint h) {
+  float gf = coefficients[base] / window_dft[0];
+  float removed_real = gf * window_dft[h];
+  float removed_imag = gf * window_dft[h + 1u];
+  removed_mean[removed_base + h] = removed_real;
+  removed_mean[removed_base + h + 1u] = removed_imag;
+  coefficients[base + h] -= removed_real;
+  coefficients[base + h + 1u] -= removed_imag;
+}
+
+void filter_op(uint base, uint h) {
+  float real = coefficients[base + h];
+  float imag = coefficients[base + h + 1u];
+  float psd = real * real + imag * imag;
+  float mult = 1.0;
+
+  if (params.filter_kind == 0u) {
+    mult = max0((psd - sigmas[h]) / (psd + 1.0e-15));
+  } else if (params.filter_kind == 1u) {
+    mult = psd < sigmas[h] ? 0.0 : 1.0;
+  } else if (params.filter_kind == 2u) {
+    mult = sigmas[h];
+  } else if (params.filter_kind == 3u) {
+    mult = (psd >= pmins[h] && psd <= pmaxs[h]) ? sigmas[h] : sigmas2[h];
+  } else if (params.filter_kind == 4u) {
+    float stable_psd = psd + 1.0e-15;
+    mult = sigmas[h] * sqrt(stable_psd * pmaxs[h] / ((stable_psd + pmins[h]) * (stable_psd + pmaxs[h])));
+  } else if (params.filter_kind == 5u) {
+    mult = pow(max0((psd - sigmas[h]) / (psd + 1.0e-15)), params.f0_beta);
+  } else if (params.filter_kind == 6u) {
+    mult = sqrt(max0((psd - sigmas[h]) / (psd + 1.0e-15)));
+  }
+
+  coefficients[base + h] = real * mult;
+  coefficients[base + h + 1u] = imag * mult;
+}
+
+void add_mean_op(uint base, uint removed_base, uint h) {
+  coefficients[base + h] += removed_mean[removed_base + h];
+  coefficients[base + h + 1u] += removed_mean[removed_base + h + 1u];
+}
+
+void main() {
+  uint complex_index = gl_GlobalInvocationID.x;
+  uint batch_index = gl_GlobalInvocationID.y;
+  uint h = complex_index * 2u;
+  if (h + 1u >= params.coefficient_count) {
+    return;
+  }
+
+  uint base = batch_index * params.coefficient_stride;
+  uint removed_base = batch_index * params.removed_mean_stride;
+  if (params.operation == 0u) {
+    remove_mean_op(base, removed_base, h);
+  } else if (params.operation == 1u) {
+    filter_op(base, h);
+  } else {
+    add_mean_op(base, removed_base, h);
+  }
+}
