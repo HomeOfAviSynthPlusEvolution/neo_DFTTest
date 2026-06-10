@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <span>
+#include <vector>
 
 #include <vulkan/vulkan.h>
 
@@ -80,9 +81,19 @@ void submit_vulkan_commands(
 );
 void clear_vulkan_buffer(VulkanRuntime& runtime, VulkanDeviceBuffer& buffer, std::uint32_t value = 0);
 void clear_vulkan_buffer_view(VulkanRuntime& runtime, DeviceBufferView view, std::uint32_t value = 0);
+void record_clear_vulkan_buffer_view(VkCommandBuffer command_buffer, DeviceBufferView view, std::uint32_t value = 0);
 void upload_to_vulkan_buffer(VulkanRuntime& runtime, VulkanDeviceBuffer& destination, const void* source, VkDeviceSize bytes);
 void upload_to_vulkan_buffer_view(VulkanRuntime& runtime, DeviceBufferView destination, const void* source, VkDeviceSize bytes);
 void upload_to_vulkan_buffer_views(VulkanRuntime& runtime, std::span<const VulkanBufferUpload> uploads);
+[[nodiscard]] std::vector<VulkanDeviceBuffer> make_vulkan_upload_staging_buffers(
+  VulkanRuntime& runtime,
+  std::span<const VulkanBufferUpload> uploads
+);
+void record_vulkan_buffer_uploads(
+  VkCommandBuffer command_buffer,
+  std::span<const VulkanBufferUpload> uploads,
+  std::span<const VulkanDeviceBuffer> staging_buffers
+);
 void download_from_vulkan_buffer(VulkanRuntime& runtime, VulkanDeviceBuffer& source, void* destination, VkDeviceSize bytes);
 
 } // namespace neo_dfttest::fft

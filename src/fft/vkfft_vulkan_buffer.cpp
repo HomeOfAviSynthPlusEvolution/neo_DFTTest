@@ -231,15 +231,19 @@ void clear_vulkan_buffer_view(VulkanRuntime& runtime, DeviceBufferView view, std
     runtime,
     [](VkCommandBuffer command_buffer, void* user) {
       const auto& clear = *static_cast<ClearRequest*>(user);
-      vkCmdFillBuffer(
-        command_buffer,
-        vk_view_buffer(clear.view, "clear Vulkan buffer view"),
-        vk_view_offset(clear.view, "clear Vulkan buffer view"),
-        vk_view_range(clear.view, "clear Vulkan buffer view"),
-        clear.value
-      );
+      record_clear_vulkan_buffer_view(command_buffer, clear.view, clear.value);
     },
     &request
+  );
+}
+
+void record_clear_vulkan_buffer_view(VkCommandBuffer command_buffer, DeviceBufferView view, std::uint32_t value) {
+  vkCmdFillBuffer(
+    command_buffer,
+    vk_view_buffer(view, "clear Vulkan buffer view"),
+    vk_view_offset(view, "clear Vulkan buffer view"),
+    vk_view_range(view, "clear Vulkan buffer view"),
+    value
   );
 }
 
@@ -271,6 +275,31 @@ void upload_to_vulkan_buffer_views(VulkanRuntime& runtime, std::span<const Vulka
     return;
   }
 
+  auto staging_buffers = make_vulkan_upload_staging_buffers(runtime, uploads);
+  struct CopyRequest {
+    const std::vector<VulkanDeviceBuffer>* staging_buffers;
+    const VulkanBufferUpload* uploads;
+    std::size_t count;
+  } request {&staging_buffers, uploads.data(), uploads.size()};
+
+  submit_vulkan_commands(
+    runtime,
+    [](VkCommandBuffer command_buffer, void* user) {
+      const auto& copy = *static_cast<CopyRequest*>(user);
+      record_vulkan_buffer_uploads(
+        command_buffer,
+        std::span<const VulkanBufferUpload>{copy.uploads, copy.count},
+        *copy.staging_buffers
+      );
+    },
+    &request
+  );
+}
+
+std::vector<VulkanDeviceBuffer> make_vulkan_upload_staging_buffers(
+  VulkanRuntime& runtime,
+  std::span<const VulkanBufferUpload> uploads
+) {
   std::vector<VulkanDeviceBuffer> staging_buffers;
   staging_buffers.reserve(uploads.size());
   for (const VulkanBufferUpload& upload : uploads) {
@@ -294,36 +323,35 @@ void upload_to_vulkan_buffer_views(VulkanRuntime& runtime, std::span<const Vulka
     staging_buffers.back().unmap();
   }
 
-  struct CopyRequest {
-    const std::vector<VulkanDeviceBuffer>* staging_buffers;
-    const VulkanBufferUpload* uploads;
-    std::size_t count;
-  } request {&staging_buffers, uploads.data(), uploads.size()};
+  return staging_buffers;
+}
 
-  submit_vulkan_commands(
-    runtime,
-    [](VkCommandBuffer command_buffer, void* user) {
-      const auto& copy = *static_cast<CopyRequest*>(user);
-      for (std::size_t index = 0; index < copy.count; ++index) {
-        const VulkanBufferUpload& upload = copy.uploads[index];
-        if (upload.bytes == 0) {
-          continue;
-        }
+void record_vulkan_buffer_uploads(
+  VkCommandBuffer command_buffer,
+  std::span<const VulkanBufferUpload> uploads,
+  std::span<const VulkanDeviceBuffer> staging_buffers
+) {
+  if (uploads.size() != staging_buffers.size()) {
+    throw std::runtime_error("upload to Vulkan buffer received mismatched staging buffers");
+  }
 
-        VkBufferCopy region {};
-        region.dstOffset = vk_device_size(upload.destination.offset_bytes, "upload to Vulkan buffer");
-        region.size = upload.bytes;
-        vkCmdCopyBuffer(
-          command_buffer,
-          (*copy.staging_buffers)[index].buffer(),
-          vk_view_buffer(upload.destination, "upload to Vulkan buffer"),
-          1,
-          &region
-        );
-      }
-    },
-    &request
-  );
+  for (std::size_t index = 0; index < uploads.size(); ++index) {
+    const VulkanBufferUpload& upload = uploads[index];
+    if (upload.bytes == 0) {
+      continue;
+    }
+
+    VkBufferCopy region {};
+    region.dstOffset = vk_device_size(upload.destination.offset_bytes, "upload to Vulkan buffer");
+    region.size = upload.bytes;
+    vkCmdCopyBuffer(
+      command_buffer,
+      staging_buffers[index].buffer(),
+      vk_view_buffer(upload.destination, "upload to Vulkan buffer"),
+      1,
+      &region
+    );
+  }
 }
 
 void download_from_vulkan_buffer(

@@ -927,12 +927,38 @@ private:
     coefficients_->ensure(context);
   }
 
-  void upload_source_frames(VulkanDftWorkspace& workspace, DFTPlaneBytes source, VkDeviceSize source_bytes) {
-    fft::upload_to_vulkan_buffer(
+  void upload_source_frames_and_clear_accumulation(
+    VulkanDftWorkspace& workspace,
+    std::span<const fft::VulkanBufferUpload> uploads
+  ) {
+    auto staging_buffers = fft::make_vulkan_upload_staging_buffers(*runtime_, uploads);
+    const fft::DeviceBufferView accumulation = workspace.accumulation();
+
+    struct UploadAndClearRequest {
+      const std::vector<fft::VulkanDeviceBuffer>* staging_buffers;
+      const fft::VulkanBufferUpload* uploads;
+      std::size_t upload_count;
+      fft::DeviceBufferView accumulation;
+    } record_request {
+      &staging_buffers,
+      uploads.data(),
+      uploads.size(),
+      accumulation
+    };
+
+    fft::submit_vulkan_commands(
       *runtime_,
-      workspace.source_frames_buffer(),
-      source.data,
-      source_bytes
+      [](VkCommandBuffer command_buffer, void* user) {
+        const auto& request = *static_cast<UploadAndClearRequest*>(user);
+        fft::record_vulkan_buffer_uploads(
+          command_buffer,
+          std::span<const fft::VulkanBufferUpload>{request.uploads, request.upload_count},
+          *request.staging_buffers
+        );
+        fft::record_clear_vulkan_buffer_view(command_buffer, request.accumulation);
+      },
+      &record_request,
+      wait_queue_idle_after_submit_
     );
   }
 
@@ -969,7 +995,7 @@ private:
         static_cast<VkDeviceSize>(bytes)
       });
     }
-    fft::upload_to_vulkan_buffer_views(*runtime_, uploads);
+    upload_source_frames_and_clear_accumulation(workspace, uploads);
 
     stage_temporal_forward_batches(
       workspace,
@@ -1008,12 +1034,12 @@ private:
   }
 
   void stage_spatial_forward_batches(VulkanDftWorkspace& workspace, const DftProcessSpatialRequest& request) {
-    upload_source_frames(
-      workspace,
-      request.source,
+    const fft::VulkanBufferUpload upload {
+      workspace.source_frames(),
+      request.source.data,
       static_cast<VkDeviceSize>(source_upload_bytes(request.source, request.plane, request.context))
-    );
-    fft::clear_vulkan_buffer_view(*runtime_, workspace.accumulation());
+    };
+    upload_source_frames_and_clear_accumulation(workspace, std::span<const fft::VulkanBufferUpload>{&upload, 1});
 
     stage_forward_batches(
       workspace,
@@ -1049,13 +1075,14 @@ private:
   }
 
   void stage_temporal_forward_batches(VulkanDftWorkspace& workspace, const DftProcessTemporalRequest& request) {
-    upload_source_frames(
-      workspace,
-      request.source,
+    const fft::VulkanBufferUpload upload {
+      workspace.source_frames(),
+      request.source.data,
       static_cast<VkDeviceSize>(
         source_upload_bytes(request.source, request.plane, request.context) * request.context.block.temporal_size
       )
-    );
+    };
+    upload_source_frames_and_clear_accumulation(workspace, std::span<const fft::VulkanBufferUpload>{&upload, 1});
     stage_temporal_forward_batches(
       workspace,
       request.plane,
@@ -1074,8 +1101,6 @@ private:
     int temporal_position,
     const DFTKernelContext& context
   ) {
-    fft::clear_vulkan_buffer_view(*runtime_, workspace.accumulation());
-
     stage_forward_batches(
       workspace,
       plane,
