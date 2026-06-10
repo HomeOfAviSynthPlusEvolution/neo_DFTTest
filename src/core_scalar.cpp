@@ -387,22 +387,22 @@ struct ScalarDftStages {
         ::remove_mean(coefficients, reference, removed);
     }
 
-    void apply_filter(const DFTFilterBatchOperation& operation, int index) const noexcept {
-        apply_filter_scalar(operation, index);
+    void apply_filter(const DFTFilterStageOperation& operation, int index) const noexcept {
+        apply_filter_scalar(operation.batch, index);
     }
 
     void add_mean(DFTMutableFloatSpan coefficients, DFTConstFloatSpan removed) const noexcept {
         ::add_mean(coefficients, removed);
     }
 
-    void accumulate_inverse_block(
-        const float* inverse,
-        const float* window,
-        float* output,
-        const DFTKernelContext& context,
-        int output_stride
-    ) const noexcept {
-        accumulate_inverse_block_scalar(inverse, window, output, context, output_stride);
+    void accumulate_inverse_block(DFTInverseAccumulationOperation operation) const noexcept {
+        accumulate_inverse_block_scalar(
+            operation.inverse,
+            operation.window,
+            operation.output,
+            *operation.context,
+            operation.output_stride
+        );
     }
 
     template<typename T>

@@ -467,6 +467,52 @@ inline DFTFilterBatchOperation dft_filter_batch_operation(
     };
 }
 
+struct DFTFilterStageOperation {
+    DFTFilterBatchOperation batch;
+    neo_dfttest::fft::MemoryDomain domain {neo_dfttest::fft::MemoryDomain::host};
+
+    [[nodiscard]] DFTFilterInput input(const int index) const noexcept {
+        return batch.input(index);
+    }
+};
+
+inline DFTFilterStageOperation dft_filter_stage_operation(
+    DFTMutableComplexBatchView coefficients,
+    const DFTKernelContext& context
+) noexcept {
+    return DFTFilterStageOperation{
+        dft_filter_batch_operation(coefficients, context),
+        coefficients.domain
+    };
+}
+
+struct DFTInverseAccumulationOperation {
+    const float* inverse {nullptr};
+    const float* window {nullptr};
+    float* output {nullptr};
+    int output_stride {0};
+    const DFTKernelContext* context {nullptr};
+    neo_dfttest::fft::MemoryDomain domain {neo_dfttest::fft::MemoryDomain::host};
+};
+
+inline DFTInverseAccumulationOperation dft_inverse_accumulation_operation(
+    const float* inverse,
+    const float* window,
+    float* output,
+    const DFTKernelContext& context,
+    const int output_stride,
+    const neo_dfttest::fft::MemoryDomain domain = neo_dfttest::fft::MemoryDomain::host
+) noexcept {
+    return DFTInverseAccumulationOperation{
+        inverse,
+        window,
+        output,
+        output_stride,
+        &context,
+        domain
+    };
+}
+
 struct NPInfo {
     int fn, b, y, x;
 };

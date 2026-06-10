@@ -43,7 +43,7 @@ void run_cpu_spatial_dft_pipeline(
             );
         },
         [&](DFTCompletedBatch ready) {
-            const auto filter_operation = dft_filter_batch_operation(ready.coefficients, context);
+            const auto filter_operation = dft_filter_stage_operation(ready.coefficients, context);
             for (int index = 0; index < ready.batch.count; ++index) {
                 auto* dftc = ready.coefficients.block(index);
                 auto* dftc2 = ready.removed_mean.block(index);
@@ -71,7 +71,16 @@ void run_cpu_spatial_dft_pipeline(
             for (int index = 0; index < ready.batch.count; ++index) {
                 float* dftr = ready.real.block(index);
                 const int block_x = dft_block_job(ready.batch, index).x;
-                stages.accumulate_inverse_block(dftr, context.coefficients.window.data, output_row + block_x, context, ebpStride);
+                stages.accumulate_inverse_block(
+                    dft_inverse_accumulation_operation(
+                        dftr,
+                        context.coefficients.window.data,
+                        output_row + block_x,
+                        context,
+                        ebpStride,
+                        ready.real.domain
+                    )
+                );
             }
         }
     );
@@ -124,7 +133,7 @@ void run_cpu_temporal_dft_pipeline(
             }
         },
         [&](DFTCompletedBatch ready) {
-            const auto filter_operation = dft_filter_batch_operation(ready.coefficients, context);
+            const auto filter_operation = dft_filter_stage_operation(ready.coefficients, context);
             for (int index = 0; index < ready.batch.count; ++index) {
                 auto* dftc = ready.coefficients.block(index);
                 auto* dftc2 = ready.removed_mean.block(index);
@@ -153,11 +162,14 @@ void run_cpu_temporal_dft_pipeline(
                 const int block_x = dft_block_job(ready.batch, index).x;
                 const int temporal_offset = temporal_position * context.derived.block_area;
                 stages.accumulate_inverse_block(
-                    dftr + temporal_offset,
-                    context.coefficients.window.data + temporal_offset,
-                    ebuff + ready.y * ebpStride + block_x,
-                    context,
-                    ebpStride
+                    dft_inverse_accumulation_operation(
+                        dftr + temporal_offset,
+                        context.coefficients.window.data + temporal_offset,
+                        ebuff + ready.y * ebpStride + block_x,
+                        context,
+                        ebpStride,
+                        ready.real.domain
+                    )
                 );
             }
         }

@@ -421,22 +421,22 @@ struct HighwayDftStages {
         RemoveMeanHighway(coefficients.data, reference.data, coefficients.size, removed.data);
     }
 
-    void apply_filter(const DFTFilterBatchOperation& operation, int index) const {
-        ApplyFilterHighway(operation, index);
+    void apply_filter(const DFTFilterStageOperation& operation, int index) const {
+        ApplyFilterHighway(operation.batch, index);
     }
 
     void add_mean(DFTMutableFloatSpan coefficients, DFTConstFloatSpan removed) const {
         AddMeanHighway(coefficients.data, coefficients.size, removed.data);
     }
 
-    void accumulate_inverse_block(
-        const float* inverse,
-        const float* window,
-        float* output,
-        const DFTKernelContext& context,
-        int output_stride
-    ) const {
-        AccumulateInverseBlockHighway(inverse, window, output, context, output_stride);
+    void accumulate_inverse_block(DFTInverseAccumulationOperation operation) const {
+        AccumulateInverseBlockHighway(
+            operation.inverse,
+            operation.window,
+            operation.output,
+            *operation.context,
+            operation.output_stride
+        );
     }
 
     template<typename T>
