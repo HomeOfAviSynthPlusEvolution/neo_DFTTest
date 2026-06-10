@@ -54,17 +54,13 @@ VkBuffer vk_buffer(DeviceBufferView view, VkDeviceSize required_size, const char
   if (view.handle == nullptr) {
     throw std::runtime_error(std::string("missing Vulkan device buffer for ") + name);
   }
+  if (view.offset_bytes != 0) {
+    throw std::runtime_error(std::string("VkFFT Vulkan backend does not currently support non-zero device buffer offsets for ") + name);
+  }
   if (view.size_bytes != 0 && view.size_bytes < required_size) {
     throw std::runtime_error(std::string("Vulkan device buffer is too small for ") + name);
   }
   return reinterpret_cast<VkBuffer>(view.handle);
-}
-
-pfUINT vkfft_buffer_offset(DeviceBufferView view, const char* name) {
-  if (view.offset_bytes > std::numeric_limits<pfUINT>::max()) {
-    throw std::runtime_error(std::string("Vulkan device buffer offset is too large for ") + name);
-  }
-  return static_cast<pfUINT>(view.offset_bytes);
 }
 
 std::size_t real_transform_elements(TransformShape shape) {
@@ -369,7 +365,7 @@ public:
     copy_real_input_to_padded_buffer(mapped, batch);
     buffer_.unmap();
 
-    run(buffer_.buffer(), 0, false);
+    run(buffer_.buffer(), false);
 
     const auto* output = static_cast<const Complex*>(buffer_.map());
     copy_complex_output_from_buffer(output, batch);
@@ -384,7 +380,7 @@ public:
     copy_complex_input_to_buffer(mapped, batch);
     buffer_.unmap();
 
-    run(buffer_.buffer(), 0, true);
+    run(buffer_.buffer(), true);
 
     const auto* output = static_cast<const Real*>(buffer_.map());
     copy_real_output_from_padded_buffer(output, batch);
@@ -398,12 +394,7 @@ public:
     if (input != output) {
       throw std::runtime_error("VkFFT Vulkan device r2c currently requires an in-place buffer");
     }
-    const pfUINT input_offset = vkfft_buffer_offset(batch.input.device, "r2c input");
-    const pfUINT output_offset = vkfft_buffer_offset(batch.output.device, "r2c output");
-    if (input_offset != output_offset) {
-      throw std::runtime_error("VkFFT Vulkan device r2c currently requires matching in-place buffer offsets");
-    }
-    run(input, input_offset, false);
+    run(input, false);
   }
 
   void submit_c2r_device(C2RBatch batch) const {
@@ -413,12 +404,7 @@ public:
     if (input != output) {
       throw std::runtime_error("VkFFT Vulkan device c2r currently requires an in-place buffer");
     }
-    const pfUINT input_offset = vkfft_buffer_offset(batch.input.device, "c2r input");
-    const pfUINT output_offset = vkfft_buffer_offset(batch.output.device, "c2r output");
-    if (input_offset != output_offset) {
-      throw std::runtime_error("VkFFT Vulkan device c2r currently requires matching in-place buffer offsets");
-    }
-    run(input, input_offset, true);
+    run(input, true);
   }
 
 private:
@@ -462,7 +448,6 @@ private:
     configuration.numberBatches = static_cast<pfUINT>(layout_.max_batch);
     configuration.disableSetLocale = 1;
     configuration.disableReorderFourStep = 1;
-    configuration.specifyOffsetsAtLaunch = 1;
     configuration.makeForwardPlanOnly = direction_ == TransformDirection::r2c ? 1 : 0;
     configuration.makeInversePlanOnly = direction_ == TransformDirection::c2r ? 1 : 0;
 
@@ -512,7 +497,7 @@ private:
     }
   }
 
-  void run(VkBuffer fft_buffer, pfUINT buffer_offset, bool inverse) const {
+  void run(VkBuffer fft_buffer, bool inverse) const {
     check_vk(vkResetCommandBuffer(command_buffer_, 0), "reset Vulkan command buffer");
 
     VkCommandBufferBeginInfo begin_info {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
@@ -539,7 +524,6 @@ private:
     VkBuffer buffer_handle = fft_buffer;
     launch.commandBuffer = &command_buffer_;
     launch.buffer = &buffer_handle;
-    launch.bufferOffset = buffer_offset;
     check_vkfft(VkFFTAppend(&app_, inverse ? 1 : 0, &launch), "execute VkFFT Vulkan plan");
 
     VkMemoryBarrier after_fft {VK_STRUCTURE_TYPE_MEMORY_BARRIER};

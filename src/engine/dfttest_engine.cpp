@@ -103,6 +103,7 @@ public:
   ~Impl() {
     if (fft_ && fft_->loaded()) {
       ds::HostGlobalLockGuard lock("fftw", host_locks_);
+      executor_.reset();
       state_.fft.forward = fft::Plan();
       state_.fft.inverse = fft::Plan();
       fft_->unload();
