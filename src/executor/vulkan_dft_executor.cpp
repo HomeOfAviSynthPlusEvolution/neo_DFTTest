@@ -767,16 +767,43 @@ public:
     const WriteOutputPushConstants& constants
   ) const {
     const std::array<fft::DeviceBufferView, 4> buffers {accumulation, output, dither, random};
-    pipeline_.dispatch(
-      buffers,
+    pipeline_.dispatch(buffers, &constants, sizeof(constants), groups_x(constants), groups_y(constants));
+  }
+
+  [[nodiscard]] vulkan::ComputeBinding bind(
+    fft::DeviceBufferView accumulation,
+    fft::DeviceBufferView output,
+    fft::DeviceBufferView dither,
+    fft::DeviceBufferView random
+  ) const {
+    const std::array<fft::DeviceBufferView, 4> buffers {accumulation, output, dither, random};
+    return pipeline_.bind_storage_buffers(buffers);
+  }
+
+  void record(
+    VkCommandBuffer command_buffer,
+    const vulkan::ComputeBinding& binding,
+    const WriteOutputPushConstants& constants
+  ) const {
+    const vulkan::ComputeDispatch dispatch {
       &constants,
       sizeof(constants),
-      ceil_div_u32(static_cast<int>(constants.output_stride_words), 16),
-      ceil_div_u32(static_cast<int>(constants.height), 16)
-    );
+      groups_x(constants),
+      groups_y(constants),
+      1
+    };
+    pipeline_.record_dispatch_many(command_buffer, binding, std::span<const vulkan::ComputeDispatch>{&dispatch, 1});
   }
 
 private:
+  [[nodiscard]] static std::uint32_t groups_x(const WriteOutputPushConstants& constants) noexcept {
+    return ceil_div_u32(static_cast<int>(constants.output_stride_words), 16);
+  }
+
+  [[nodiscard]] static std::uint32_t groups_y(const WriteOutputPushConstants& constants) noexcept {
+    return ceil_div_u32(static_cast<int>(constants.height), 16);
+  }
+
   vulkan::ComputePipeline pipeline_;
 };
 
@@ -1394,21 +1421,52 @@ private:
       context.sample.multiplier
     };
 
-    write_output_->dispatch(
+    auto output_binding = write_output_->bind(
       workspace.accumulation(),
       workspace.output(),
       workspace.dither(),
-      workspace.random(),
-      constants
+      workspace.random()
+    );
+    fft::VulkanDeviceBuffer staging(
+      *runtime_,
+      static_cast<VkDeviceSize>(output_bytes),
+      VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+    );
+
+    struct WriteOutputRecordRequest {
+      VulkanWriteOutputKernel* write_output;
+      const vulkan::ComputeBinding* output_binding;
+      const WriteOutputPushConstants* constants;
+      fft::VulkanDeviceBuffer* output;
+      fft::VulkanDeviceBuffer* staging;
+      VkDeviceSize bytes;
+    } record_request {
+      write_output_.get(),
+      &output_binding,
+      &constants,
+      &workspace.output_buffer(),
+      &staging,
+      static_cast<VkDeviceSize>(output_bytes)
+    };
+
+    fft::submit_vulkan_commands(
+      *runtime_,
+      [](VkCommandBuffer command_buffer, void* user) {
+        const auto& request = *static_cast<WriteOutputRecordRequest*>(user);
+        request.write_output->record(command_buffer, *request.output_binding, *request.constants);
+
+        VkBufferCopy region {};
+        region.size = request.bytes;
+        vkCmdCopyBuffer(command_buffer, request.output->buffer(), request.staging->buffer(), 1, &region);
+      },
+      &record_request,
+      wait_queue_idle_after_submit_
     );
 
     std::vector<unsigned char> packed(output_bytes);
-    fft::download_from_vulkan_buffer(
-      *runtime_,
-      workspace.output_buffer(),
-      packed.data(),
-      static_cast<VkDeviceSize>(packed.size())
-    );
+    std::memcpy(packed.data(), staging.map(), packed.size());
+    staging.unmap();
 
     for (int y = 0; y < height; ++y) {
       std::memcpy(
