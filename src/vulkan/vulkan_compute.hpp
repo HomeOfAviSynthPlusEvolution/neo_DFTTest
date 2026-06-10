@@ -14,6 +14,14 @@
 
 namespace neo_dfttest::vulkan {
 
+struct ComputeDispatch {
+  const void* push_constants {nullptr};
+  std::uint32_t push_constant_bytes {0};
+  std::uint32_t groups_x {1};
+  std::uint32_t groups_y {1};
+  std::uint32_t groups_z {1};
+};
+
 class ComputePipeline final {
 public:
   ComputePipeline(
@@ -38,6 +46,11 @@ public:
     std::uint32_t groups_x,
     std::uint32_t groups_y = 1,
     std::uint32_t groups_z = 1
+  ) const;
+
+  void dispatch_many(
+    std::span<const fft::DeviceBufferView> storage_buffers,
+    std::span<const ComputeDispatch> dispatches
   ) const;
 
 private:

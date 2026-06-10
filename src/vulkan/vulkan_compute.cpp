@@ -150,14 +150,33 @@ void ComputePipeline::dispatch(
   std::uint32_t groups_y,
   std::uint32_t groups_z
 ) const {
+  const ComputeDispatch dispatch {
+    push_constants,
+    push_constant_bytes,
+    groups_x,
+    groups_y,
+    groups_z
+  };
+  dispatch_many(storage_buffers, std::span<const ComputeDispatch>{&dispatch, 1});
+}
+
+void ComputePipeline::dispatch_many(
+  std::span<const fft::DeviceBufferView> storage_buffers,
+  std::span<const ComputeDispatch> dispatches
+) const {
   if (storage_buffers.size() != storage_binding_count_) {
     throw std::runtime_error("Vulkan compute dispatch received the wrong number of storage buffers");
   }
-  if (push_constant_bytes != push_constant_bytes_) {
-    throw std::runtime_error("Vulkan compute dispatch received the wrong push constant size");
+  if (dispatches.empty()) {
+    return;
   }
-  if (push_constant_bytes_ > 0 && push_constants == nullptr) {
-    throw std::runtime_error("Vulkan compute dispatch received null push constants");
+  for (const ComputeDispatch& dispatch : dispatches) {
+    if (dispatch.push_constant_bytes != push_constant_bytes_) {
+      throw std::runtime_error("Vulkan compute dispatch received the wrong push constant size");
+    }
+    if (push_constant_bytes_ > 0 && dispatch.push_constants == nullptr) {
+      throw std::runtime_error("Vulkan compute dispatch received null push constants");
+    }
   }
 
   std::vector<VkDescriptorBufferInfo> buffer_infos(storage_buffers.size());
@@ -179,20 +198,14 @@ void ComputePipeline::dispatch(
     const ComputePipeline* pipeline;
     const VkWriteDescriptorSet* writes;
     std::uint32_t write_count;
-    const void* push_constants;
-    std::uint32_t push_constant_bytes;
-    std::uint32_t groups_x;
-    std::uint32_t groups_y;
-    std::uint32_t groups_z;
+    const ComputeDispatch* dispatches;
+    std::uint32_t dispatch_count;
   } request {
     this,
     writes.data(),
     static_cast<std::uint32_t>(writes.size()),
-    push_constants,
-    push_constant_bytes,
-    groups_x,
-    groups_y,
-    groups_z
+    dispatches.data(),
+    static_cast<std::uint32_t>(dispatches.size())
   };
 
   fft::submit_vulkan_commands(
@@ -238,17 +251,20 @@ void ComputePipeline::dispatch(
         0,
         nullptr
       );
-      if (request.push_constant_bytes > 0) {
-        vkCmdPushConstants(
-          command_buffer,
-          pipeline.pipeline_layout_,
-          VK_SHADER_STAGE_COMPUTE_BIT,
-          0,
-          request.push_constant_bytes,
-          request.push_constants
-        );
+      for (std::uint32_t index = 0; index < request.dispatch_count; ++index) {
+        const ComputeDispatch& dispatch = request.dispatches[index];
+        if (dispatch.push_constant_bytes > 0) {
+          vkCmdPushConstants(
+            command_buffer,
+            pipeline.pipeline_layout_,
+            VK_SHADER_STAGE_COMPUTE_BIT,
+            0,
+            dispatch.push_constant_bytes,
+            dispatch.push_constants
+          );
+        }
+        vkCmdDispatch(command_buffer, dispatch.groups_x, dispatch.groups_y, dispatch.groups_z);
       }
-      vkCmdDispatch(command_buffer, request.groups_x, request.groups_y, request.groups_z);
 
       VkMemoryBarrier after_dispatch {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
       after_dispatch.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;

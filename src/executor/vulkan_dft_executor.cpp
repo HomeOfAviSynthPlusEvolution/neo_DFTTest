@@ -531,14 +531,28 @@ public:
     fft::DeviceBufferView output,
     const LoadWindowPushConstants& constants
   ) const {
+    dispatch_many(source, window, output, std::span<const LoadWindowPushConstants>{&constants, 1});
+  }
+
+  void dispatch_many(
+    fft::DeviceBufferView source,
+    fft::DeviceBufferView window,
+    fft::DeviceBufferView output,
+    std::span<const LoadWindowPushConstants> constants
+  ) const {
     const std::array<fft::DeviceBufferView, 3> buffers {source, window, output};
-    pipeline_.dispatch(
-      buffers,
-      &constants,
-      sizeof(constants),
-      ceil_div_u32(static_cast<int>(constants.output_stride), 16),
-      ceil_div_u32(static_cast<int>(constants.block_size), 16)
-    );
+    std::vector<vulkan::ComputeDispatch> dispatches;
+    dispatches.reserve(constants.size());
+    for (const LoadWindowPushConstants& item : constants) {
+      dispatches.push_back(vulkan::ComputeDispatch{
+        &item,
+        sizeof(item),
+        ceil_div_u32(static_cast<int>(item.output_stride), 16),
+        ceil_div_u32(static_cast<int>(item.block_size), 16),
+        1
+      });
+    }
+    pipeline_.dispatch_many(buffers, dispatches);
   }
 
 private:
@@ -866,9 +880,9 @@ private:
       workspace,
       request.plane,
       request.context,
-      [&](int y, int x, int batch_index, int slot) {
-        dispatch_load_window(
-          workspace,
+      [&](int y, int x, int batch_index, int slot, std::vector<LoadWindowPushConstants>& load_windows) {
+        (void)slot;
+        load_windows.push_back(make_load_window_constants(
           request.context,
           request.plane,
           request.source.stride_bytes,
@@ -876,9 +890,8 @@ private:
           x,
           y,
           0,
-          batch_output_offset(workspace, batch_index),
-          slot
-        );
+          batch_output_offset(workspace, batch_index)
+        ));
       },
       [&](int y, int x, int batch_index, int slot) {
         accumulate_inverse_block(
@@ -928,7 +941,8 @@ private:
       workspace,
       plane,
       context,
-      [&](int y, int x, int batch_index, int slot) {
+      [&](int y, int x, int batch_index, int slot, std::vector<LoadWindowPushConstants>& load_windows) {
+        (void)slot;
         for (int z = 0; z < context.block.temporal_size; ++z) {
           const std::size_t source_base =
             source_frame_storage *
@@ -942,8 +956,7 @@ private:
             static_cast<std::size_t>(context.block.spatial_size) *
             static_cast<std::size_t>(z);
 
-          dispatch_load_window(
-            workspace,
+          load_windows.push_back(make_load_window_constants(
             context,
             plane,
             source_stride_bytes,
@@ -951,9 +964,8 @@ private:
             x,
             y,
             window_offset,
-            output_offset,
-            slot
-          );
+            output_offset
+          ));
         }
       },
       [&](int y, int x, int batch_index, int slot) {
@@ -1009,11 +1021,17 @@ private:
 
         auto real = workspace.fft_real_batch(active_slot, batch.count);
         auto coefficients = workspace.fft_complex_batch(active_slot, batch.count);
+        std::vector<LoadWindowPushConstants> load_windows;
+        load_windows.reserve(
+          static_cast<std::size_t>(batch.count) *
+            static_cast<std::size_t>(std::max(context.block.temporal_size, 1))
+        );
 
         for (int index = 0; index < batch.count; ++index) {
           const DFTBlockJob& job = dft_block_job(batch, index);
-          load_batch_block(job.y, job.x, index, active_slot);
+          load_batch_block(job.y, job.x, index, active_slot, load_windows);
         }
+        dispatch_load_windows(workspace, active_slot, load_windows);
 
         DftFftOperations{context}.submit_forward(real, coefficients).wait();
         apply_frequency_ops(coefficients, workspace.removed_mean_batch(active_slot, batch.count), context);
@@ -1100,8 +1118,7 @@ private:
     );
   }
 
-  void dispatch_load_window(
-    VulkanDftWorkspace& workspace,
+  [[nodiscard]] LoadWindowPushConstants make_load_window_constants(
     const DFTKernelContext& context,
     int plane,
     int source_stride_bytes,
@@ -1109,12 +1126,9 @@ private:
     int source_x,
     int source_y,
     std::size_t window_offset,
-    std::size_t output_offset,
-    int slot
+    std::size_t output_offset
   ) {
-    const auto real = workspace.fft_real_batch(slot, 1);
-
-    const LoadWindowPushConstants constants {
+    return LoadWindowPushConstants{
       checked_u32(source_base_bytes, "source base offset"),
       static_cast<std::uint32_t>(source_stride_bytes),
       static_cast<std::uint32_t>(source_x),
@@ -1130,8 +1144,15 @@ private:
       static_cast<std::uint32_t>((context.planes.pad_height[plane] - context.planes.height[plane]) / 2),
       context.sample.divisor
     };
+  }
 
-    load_window_->dispatch(
+  void dispatch_load_windows(
+    VulkanDftWorkspace& workspace,
+    int slot,
+    std::span<const LoadWindowPushConstants> constants
+  ) {
+    const auto real = workspace.fft_real_batch(slot, 1);
+    load_window_->dispatch_many(
       workspace.source_frames(),
       coefficients_->window(),
       real.device,
