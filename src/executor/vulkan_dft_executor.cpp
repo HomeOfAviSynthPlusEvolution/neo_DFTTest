@@ -430,36 +430,28 @@ public:
       return;
     }
 
-    window_ = allocate_and_upload(
-      context.coefficients.window.data,
-      context.coefficients.window.size,
-      sizeof(float)
-    );
-    sigmas_ = allocate_and_upload(
-      context.coefficients.sigmas.data,
-      context.coefficients.sigmas.size,
-      sizeof(float)
-    );
-    sigmas2_ = allocate_and_upload(
-      context.coefficients.sigmas2.data,
-      context.coefficients.sigmas2.size,
-      sizeof(float)
-    );
-    pmins_ = allocate_and_upload(
-      context.coefficients.pmins.data,
-      context.coefficients.pmins.size,
-      sizeof(float)
-    );
-    pmaxs_ = allocate_and_upload(
-      context.coefficients.pmaxs.data,
-      context.coefficients.pmaxs.size,
-      sizeof(float)
-    );
-    window_dft_ = allocate_and_upload(
+    window_ = allocate_coefficient_buffer(context.coefficients.window.size, sizeof(float));
+    sigmas_ = allocate_coefficient_buffer(context.coefficients.sigmas.size, sizeof(float));
+    sigmas2_ = allocate_coefficient_buffer(context.coefficients.sigmas2.size, sizeof(float));
+    pmins_ = allocate_coefficient_buffer(context.coefficients.pmins.size, sizeof(float));
+    pmaxs_ = allocate_coefficient_buffer(context.coefficients.pmaxs.size, sizeof(float));
+    window_dft_ = allocate_coefficient_buffer(context.derived.coefficient_count, sizeof(float));
+
+    std::vector<fft::VulkanBufferUpload> uploads;
+    uploads.reserve(6);
+    append_coefficient_upload(uploads, window_, context.coefficients.window.data, context.coefficients.window.size, sizeof(float));
+    append_coefficient_upload(uploads, sigmas_, context.coefficients.sigmas.data, context.coefficients.sigmas.size, sizeof(float));
+    append_coefficient_upload(uploads, sigmas2_, context.coefficients.sigmas2.data, context.coefficients.sigmas2.size, sizeof(float));
+    append_coefficient_upload(uploads, pmins_, context.coefficients.pmins.data, context.coefficients.pmins.size, sizeof(float));
+    append_coefficient_upload(uploads, pmaxs_, context.coefficients.pmaxs.data, context.coefficients.pmaxs.size, sizeof(float));
+    append_coefficient_upload(
+      uploads,
+      window_dft_,
       complex_float_data(context.coefficients.window_dft.data),
       context.derived.coefficient_count,
       sizeof(float)
     );
+    fft::upload_to_vulkan_buffer_views(*runtime_, uploads);
 
     shape_ = next;
     ready_ = true;
@@ -490,19 +482,27 @@ public:
   }
 
 private:
-  [[nodiscard]] fft::VulkanDeviceBuffer allocate_and_upload(
+  [[nodiscard]] fft::VulkanDeviceBuffer allocate_coefficient_buffer(
+    int count,
+    std::size_t element_size
+  ) const {
+    const VkDeviceSize bytes = checked_bytes(static_cast<std::size_t>(std::max(count, 0)), element_size, "coefficient table");
+    return make_workspace_buffer(*runtime_, bytes);
+  }
+
+  void append_coefficient_upload(
+    std::vector<fft::VulkanBufferUpload>& uploads,
+    fft::VulkanDeviceBuffer& buffer,
     const void* source,
     int count,
     std::size_t element_size
   ) const {
     const VkDeviceSize bytes = checked_bytes(static_cast<std::size_t>(std::max(count, 0)), element_size, "coefficient table");
-    auto buffer = make_workspace_buffer(*runtime_, bytes);
     if (count > 0) {
-      fft::upload_to_vulkan_buffer(*runtime_, buffer, source, bytes);
-    } else {
-      fft::clear_vulkan_buffer(*runtime_, buffer);
+      uploads.push_back(fft::VulkanBufferUpload{buffer.view(), source, bytes});
+      return;
     }
-    return buffer;
+    fft::clear_vulkan_buffer(*runtime_, buffer);
   }
 
   fft::VulkanRuntime* runtime_ {nullptr};
