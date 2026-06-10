@@ -248,7 +248,17 @@ void upload_to_vulkan_buffer(
   const void* source,
   VkDeviceSize bytes
 ) {
-  validate_transfer_size(bytes, destination.size(), "upload to Vulkan buffer");
+  upload_to_vulkan_buffer_view(runtime, destination.view(), source, bytes);
+}
+
+void upload_to_vulkan_buffer_view(
+  VulkanRuntime& runtime,
+  DeviceBufferView destination,
+  const void* source,
+  VkDeviceSize bytes
+) {
+  const VkDeviceSize destination_range = vk_device_size(destination.size_bytes, "upload to Vulkan buffer");
+  validate_transfer_size(bytes, destination_range, "upload to Vulkan buffer");
   if (bytes == 0) {
     return;
   }
@@ -267,17 +277,24 @@ void upload_to_vulkan_buffer(
 
   struct CopyRequest {
     VulkanDeviceBuffer* source;
-    VulkanDeviceBuffer* destination;
+    DeviceBufferView destination;
     VkDeviceSize bytes;
-  } request {&staging, &destination, bytes};
+  } request {&staging, destination, bytes};
 
   submit_vulkan_commands(
     runtime,
     [](VkCommandBuffer command_buffer, void* user) {
       const auto& copy = *static_cast<CopyRequest*>(user);
       VkBufferCopy region {};
+      region.dstOffset = vk_device_size(copy.destination.offset_bytes, "upload to Vulkan buffer");
       region.size = copy.bytes;
-      vkCmdCopyBuffer(command_buffer, copy.source->buffer(), copy.destination->buffer(), 1, &region);
+      vkCmdCopyBuffer(
+        command_buffer,
+        copy.source->buffer(),
+        vk_view_buffer(copy.destination, "upload to Vulkan buffer"),
+        1,
+        &region
+      );
     },
     &request
   );

@@ -69,6 +69,7 @@ void submit_vulkan_commands(VulkanRuntime& runtime, void (*record)(VkCommandBuff
 void clear_vulkan_buffer(VulkanRuntime& runtime, VulkanDeviceBuffer& buffer, std::uint32_t value = 0);
 void clear_vulkan_buffer_view(VulkanRuntime& runtime, DeviceBufferView view, std::uint32_t value = 0);
 void upload_to_vulkan_buffer(VulkanRuntime& runtime, VulkanDeviceBuffer& destination, const void* source, VkDeviceSize bytes);
+void upload_to_vulkan_buffer_view(VulkanRuntime& runtime, DeviceBufferView destination, const void* source, VkDeviceSize bytes);
 void download_from_vulkan_buffer(VulkanRuntime& runtime, VulkanDeviceBuffer& source, void* destination, VkDeviceSize bytes);
 
 } // namespace neo_dfttest::fft

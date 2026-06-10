@@ -740,26 +740,7 @@ public:
       return;
     }
 
-    const std::size_t source_frame_bytes = source_upload_bytes(request.sources[0], request.plane, request.context);
-    AlignedBuffer<unsigned char> source_upload(source_frame_bytes * static_cast<std::size_t>(request.source_count));
-
-    for (int index = 0; index < request.source_count; ++index) {
-      const DFTPlaneBytes source = request.sources[static_cast<std::size_t>(index)];
-      const std::size_t bytes = source_upload_bytes(source, request.plane, request.context);
-      if (bytes != source_frame_bytes) {
-        throw std::runtime_error("Vulkan DFT executor received inconsistent source frame strides");
-      }
-      std::memcpy(source_upload.data() + source_frame_bytes * static_cast<std::size_t>(index), source.data, bytes);
-    }
-
-    process_temporal(DftProcessTemporalRequest{
-      request.workspace,
-      request.plane,
-      DFTPlaneBytes{source_upload.data(), request.sources[0].stride_bytes},
-      request.destination,
-      request.temporal_position,
-      request.context
-    });
+    process_temporal_sources(request);
   }
 
   void process_spatial(DftProcessSpatialRequest request) override {
@@ -802,6 +783,59 @@ private:
     );
   }
 
+  void upload_source_frame(
+    VulkanDftWorkspace& workspace,
+    DFTPlaneBytes source,
+    std::size_t destination_offset,
+    std::size_t source_bytes
+  ) {
+    fft::DeviceBufferView destination = workspace.source_frames();
+    if (destination_offset > destination.size_bytes || source_bytes > destination.size_bytes - destination_offset) {
+      throw std::runtime_error("Vulkan source frame upload exceeds source buffer size");
+    }
+    destination.offset_bytes += destination_offset;
+    destination.size_bytes = source_bytes;
+    fft::upload_to_vulkan_buffer_view(
+      *runtime_,
+      destination,
+      source.data,
+      static_cast<VkDeviceSize>(source_bytes)
+    );
+  }
+
+  void process_temporal_sources(DftProcessRequest request) {
+    VulkanDftWorkspace& workspace = prepare_workspace(request.workspace, request.context);
+    const std::size_t source_frame_bytes = source_upload_bytes(request.sources[0], request.plane, request.context);
+    const std::size_t source_frame_storage = source_frame_storage_bytes(request.sources[0], request.plane, request.context);
+
+    for (int index = 0; index < request.source_count; ++index) {
+      const DFTPlaneBytes source = request.sources[static_cast<std::size_t>(index)];
+      const std::size_t bytes = source_upload_bytes(source, request.plane, request.context);
+      if (bytes != source_frame_bytes) {
+        throw std::runtime_error("Vulkan DFT executor received inconsistent source frame strides");
+      }
+      upload_source_frame(
+        workspace,
+        source,
+        source_frame_storage * static_cast<std::size_t>(index),
+        bytes
+      );
+    }
+
+    stage_temporal_forward_batches(
+      workspace,
+      request.plane,
+      request.sources[0].stride_bytes,
+      source_frame_storage,
+      request.temporal_position,
+      request.context
+    );
+    if (write_output_from_accumulation(workspace, request.workspace.host_view(), request.destination, request.plane, request.context)) {
+      return;
+    }
+    throw std::runtime_error("Vulkan DFT executor could not write temporal output");
+  }
+
   [[nodiscard]] bool can_write_vulkan_output(DFTThreadWorkspaceView host_workspace, const DFTKernelContext& context) const noexcept {
     return context.format.bytes_per_sample != 1 ||
       context.block.dither_mode <= 1 ||
@@ -814,6 +848,14 @@ private:
     const DFTKernelContext& context
   ) noexcept {
     return static_cast<std::size_t>(source.stride_bytes) * static_cast<std::size_t>(context.planes.height[plane]);
+  }
+
+  [[nodiscard]] static std::size_t source_frame_storage_bytes(
+    DFTPlaneBytes source,
+    int plane,
+    const DFTKernelContext& context
+  ) noexcept {
+    return align_storage_bytes(source_upload_bytes(source, plane, context));
   }
 
   void stage_spatial_forward_batches(VulkanDftWorkspace& workspace, const DftProcessSpatialRequest& request) {
@@ -866,31 +908,49 @@ private:
         source_upload_bytes(request.source, request.plane, request.context) * request.context.block.temporal_size
       )
     );
+    stage_temporal_forward_batches(
+      workspace,
+      request.plane,
+      request.source.stride_bytes,
+      source_upload_bytes(request.source, request.plane, request.context),
+      request.temporal_position,
+      request.context
+    );
+  }
+
+  void stage_temporal_forward_batches(
+    VulkanDftWorkspace& workspace,
+    int plane,
+    int source_stride_bytes,
+    std::size_t source_frame_storage,
+    int temporal_position,
+    const DFTKernelContext& context
+  ) {
     fft::clear_vulkan_buffer_view(*runtime_, workspace.accumulation());
 
     stage_forward_batches(
       workspace,
-      request.plane,
-      request.context,
+      plane,
+      context,
       [&](int y, int x, int batch_index, int slot) {
-        for (int z = 0; z < request.context.block.temporal_size; ++z) {
+        for (int z = 0; z < context.block.temporal_size; ++z) {
           const std::size_t source_base =
-            source_upload_bytes(request.source, request.plane, request.context) *
+            source_frame_storage *
             static_cast<std::size_t>(z);
           const std::size_t window_offset =
-            static_cast<std::size_t>(request.context.derived.block_area) *
+            static_cast<std::size_t>(context.derived.block_area) *
             static_cast<std::size_t>(z);
           const std::size_t output_offset =
             batch_output_offset(workspace, batch_index) +
-            static_cast<std::size_t>(request.context.block.spatial_size + 2) *
-            static_cast<std::size_t>(request.context.block.spatial_size) *
+            static_cast<std::size_t>(context.block.spatial_size + 2) *
+            static_cast<std::size_t>(context.block.spatial_size) *
             static_cast<std::size_t>(z);
 
           dispatch_load_window(
             workspace,
-            request.context,
-            request.plane,
-            request.source.stride_bytes,
+            context,
+            plane,
+            source_stride_bytes,
             source_base,
             x,
             y,
@@ -902,16 +962,16 @@ private:
       },
       [&](int y, int x, int batch_index, int slot) {
         const std::size_t inverse_temporal_offset =
-          static_cast<std::size_t>(request.temporal_position) *
-          static_cast<std::size_t>(request.context.block.spatial_size + 2) *
-          static_cast<std::size_t>(request.context.block.spatial_size);
+          static_cast<std::size_t>(temporal_position) *
+          static_cast<std::size_t>(context.block.spatial_size + 2) *
+          static_cast<std::size_t>(context.block.spatial_size);
         const std::size_t window_temporal_offset =
-          static_cast<std::size_t>(request.temporal_position) *
-          static_cast<std::size_t>(request.context.derived.block_area);
+          static_cast<std::size_t>(temporal_position) *
+          static_cast<std::size_t>(context.derived.block_area);
         accumulate_inverse_block(
           workspace,
-          request.context,
-          request.plane,
+          context,
+          plane,
           slot,
           batch_index,
           inverse_temporal_offset,
