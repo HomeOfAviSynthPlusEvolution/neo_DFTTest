@@ -9,6 +9,7 @@
 #include "engine/dfttest_config.hpp"
 #include "engine/pixel_plane.hpp"
 #include "executor/dft_executor.hpp"
+#include "executor/dft_fft_operation.hpp"
 
 #include <algorithm>
 #include <array>
@@ -283,6 +284,19 @@ private:
     state_.batch_policy = executor_->make_batch_policy(state_.block, state_.fft.backend->capabilities());
   }
 
+  void submit_forward_and_wait(
+    float* real,
+    fft::Complex* coefficients,
+    const int real_stride,
+    const int complex_stride
+  ) {
+    const DFTKernelContext kernel_context = make_kernel_context(state_);
+    DftFftOperations{kernel_context}.submit_forward_and_wait(
+      dft_host_real_batch_view(real, real_stride, 1),
+      dft_host_complex_batch_view(coefficients, complex_stride, 1)
+    );
+  }
+
   void create_fft_plans() {
     state_.coefficients.window =
       detail::make_aligned_buffer<float>(state_.derived.block_volume + 7, "hw");
@@ -343,10 +357,7 @@ private:
       }
     }
 
-    state_.fft.backend->submit_r2c(
-      state_.fft.forward,
-      fft::single_r2c_batch(dftgr.data(), state_.coefficients.window_dft.data(), real_stride, complex_stride)
-    ).wait();
+    submit_forward_and_wait(dftgr.data(), state_.coefficients.window_dft.data(), real_stride, complex_stride);
     wscale_ = 1.0f / wscale;
   }
 
@@ -509,10 +520,7 @@ private:
       }
     }
     wscale2 = 1.0f / wscale2;
-    state_.fft.backend->submit_r2c(
-      state_.fft.forward,
-      fft::single_r2c_batch(dftr.data(), dftgc2.data(), real_stride, complex_stride)
-    ).wait();
+    submit_forward_and_wait(dftr.data(), dftgc2.data(), real_stride, complex_stride);
 
     auto dftc = detail::make_aligned_buffer<fft::Complex>(complex_stride, "dftc");
     auto dftc2 = detail::make_aligned_buffer<fft::Complex>(complex_stride, "dftc2");
@@ -554,10 +562,7 @@ private:
         }
       }
 
-      state_.fft.backend->submit_r2c(
-        state_.fft.forward,
-        fft::single_r2c_batch(dftr.data(), dftc.data(), real_stride, complex_stride)
-      ).wait();
+      submit_forward_and_wait(dftr.data(), dftc.data(), real_stride, complex_stride);
 
       if (state_.block.zero_mean) {
         remove_mean_scalar(

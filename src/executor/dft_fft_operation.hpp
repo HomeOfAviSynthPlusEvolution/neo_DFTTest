@@ -19,6 +19,13 @@ public:
         );
     }
 
+    void submit_forward_and_wait(
+        DFTMutableRealBatchView input,
+        DFTMutableComplexBatchView output
+    ) const noexcept {
+        submit_forward(input, output).wait();
+    }
+
     [[nodiscard]] fft::Completion submit_inverse(
         DFTMutableComplexBatchView input,
         DFTMutableRealBatchView output
