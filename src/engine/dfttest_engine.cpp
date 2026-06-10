@@ -62,6 +62,17 @@ std::unique_ptr<fft::Backend> create_fft_backend(std::string_view name) {
   throw std::runtime_error("unsupported FFT backend");
 }
 
+std::unique_ptr<DftExecutor> create_dft_executor(std::string_view fft_backend, unsigned opt, DFTClipFormat format) {
+#if defined(NEO_DFTTEST_ENABLE_VKFFT_VULKAN)
+  if (fft_backend == "vkfft" || fft_backend == "vkfft-vulkan") {
+    return create_vulkan_dft_executor(opt, format);
+  }
+#else
+  (void)fft_backend;
+#endif
+  return create_cpu_dft_executor(opt, format);
+}
+
 int logical_cpu_threads() noexcept {
   const unsigned int hardware_threads = std::thread::hardware_concurrency();
   return hardware_threads > 0 ? static_cast<int>(hardware_threads) : 4;
@@ -121,7 +132,7 @@ public:
     }
     config_.validate(input, state_);
     config_.configure_planes(values, state_);
-    executor_ = create_cpu_dft_executor(static_cast<unsigned>(config_.opt), state_.format);
+    executor_ = create_dft_executor(config_.fft_backend, static_cast<unsigned>(config_.opt), state_.format);
     configure_batch_policy();
 
     state_.kernels = selectFunctions(

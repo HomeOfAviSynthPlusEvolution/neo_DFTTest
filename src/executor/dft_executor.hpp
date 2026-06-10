@@ -13,6 +13,7 @@ struct DftExecutorCapabilities {
   bool supports_device_coefficients {false};
   bool supports_asynchronous_batches {false};
   bool supports_host_copy_pad {true};
+  bool uses_host_fallback {false};
 };
 
 struct DftCopyPadRequest {
@@ -88,5 +89,8 @@ public:
 };
 
 std::unique_ptr<DftExecutor> create_cpu_dft_executor(unsigned opt, DFTClipFormat format);
+#if defined(NEO_DFTTEST_ENABLE_VKFFT_VULKAN)
+std::unique_ptr<DftExecutor> create_vulkan_dft_executor(unsigned opt, DFTClipFormat format);
+#endif
 
 } // namespace neo_dfttest

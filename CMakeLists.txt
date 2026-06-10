@@ -62,7 +62,10 @@ if(NEO_DFTTEST_ENABLE_VKFFT_VULKAN)
   )
   FetchContent_MakeAvailable(glslang-main)
 
-  target_sources(neo-dfttest PRIVATE src/fft/vkfft_vulkan_backend.cpp)
+  target_sources(neo-dfttest PRIVATE
+    src/executor/vulkan_dft_executor.cpp
+    src/fft/vkfft_vulkan_backend.cpp
+  )
   target_include_directories(neo-dfttest PRIVATE
     ${vkfft_SOURCE_DIR}/vkFFT
     ${glslang-main_SOURCE_DIR}/glslang/Include

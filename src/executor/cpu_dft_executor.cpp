@@ -19,7 +19,8 @@ public:
       fft::MemoryDomain::host,
       false,
       false,
-      true
+      true,
+      false
     };
   }
 
