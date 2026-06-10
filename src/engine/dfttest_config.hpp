@@ -15,6 +15,8 @@ struct DfttestConfig {
   int fft_threads = 1;
   bool worker_threads_auto = true;
   bool fft_threads_auto = true;
+  bool dither_seed_set = false;
+  std::uint32_t dither_seed = 0;
   int ftype = 0;
   int smode = 1;
   int tmode = 0;

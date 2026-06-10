@@ -734,7 +734,10 @@ private:
           "dither buffer"
         );
         if (state_.block.dither_mode > 1) {
-          slot.rng = std::make_unique<std::mt19937>(std::random_device{}());
+          const std::uint32_t seed = config_.dither_seed_set
+            ? config_.dither_seed + thread_id
+            : std::random_device{}();
+          slot.rng = std::make_unique<std::mt19937>(seed);
         }
       }
     }

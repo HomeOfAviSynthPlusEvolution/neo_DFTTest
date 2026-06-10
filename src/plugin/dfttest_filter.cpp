@@ -131,6 +131,7 @@ ds::FilterDescriptor DFTTestBridge::descriptor() {
       ds::ParamSpec{"sst", ds::ParamType::Float, ds::ParamValue{}, false, true},
       ds::ParamSpec{"ssystem", ds::ParamType::Integer},
       ds::ParamSpec{"dither", ds::ParamType::Integer},
+      ds::ParamSpec{"dither_seed", ds::ParamType::Integer},
       ds::ParamSpec{"planes", ds::ParamType::Integer, ds::ParamValue{}, false, true, true, false},
       ds::ParamSpec{"y", ds::ParamType::Integer, ds::ParamValue{}, false, false, false, true},
       ds::ParamSpec{"u", ds::ParamType::Integer, ds::ParamValue{}, false, false, false, true},

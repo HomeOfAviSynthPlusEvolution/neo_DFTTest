@@ -102,6 +102,14 @@ DfttestConfig DfttestConfig::read(const ds::ParamValues& values, DFTTestData& st
   config.worker_threads_auto = !has_param(values, "threads") || requested_worker_threads <= 0;
   state.block.worker_threads = config.worker_threads_auto ? 1 : requested_worker_threads;
   state.block.dither_mode = read_int(values, "dither", state.block.dither_mode);
+  config.dither_seed_set = has_param(values, "dither_seed");
+  if (config.dither_seed_set) {
+    const int seed = read_int(values, "dither_seed", 0);
+    if (seed < 0) {
+      throw std::runtime_error("dither_seed must be non-negative");
+    }
+    config.dither_seed = static_cast<std::uint32_t>(seed);
+  }
   const int requested_fft_threads = read_int(values, "fft_threads", 0);
   config.fft_threads_auto = !has_param(values, "fft_threads") || requested_fft_threads <= 0;
   config.fft_threads = config.fft_threads_auto ? 1 : requested_fft_threads;
