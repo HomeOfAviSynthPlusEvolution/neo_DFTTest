@@ -31,6 +31,10 @@ constexpr std::uint32_t kAccumulateInverseSpv[] = {
 #include "neo_dfttest/accumulate_inverse_comp_spv.inc"
 };
 
+constexpr std::uint32_t kWriteOutputSpv[] = {
+#include "neo_dfttest/write_output_comp_spv.inc"
+};
+
 [[nodiscard]] VkDeviceSize checked_bytes(std::size_t count, std::size_t element_size, const char* name) {
   if (count == 0) {
     return 1;
@@ -74,6 +78,28 @@ constexpr std::uint32_t kAccumulateInverseSpv[] = {
   return checked_bytes(elements, sizeof(float), "accumulation");
 }
 
+[[nodiscard]] std::size_t output_row_bytes(const DFTKernelContext& context, int plane) noexcept {
+  return static_cast<std::size_t>(context.planes.width[plane]) *
+    static_cast<std::size_t>(context.format.bytes_per_sample);
+}
+
+[[nodiscard]] std::size_t packed_output_stride_words(const DFTKernelContext& context, int plane) noexcept {
+  return (output_row_bytes(context, plane) + 3u) / 4u;
+}
+
+[[nodiscard]] VkDeviceSize packed_output_bytes(const DFTKernelContext& context, int plane) {
+  const std::size_t row_bytes = packed_output_stride_words(context, plane) * 4u;
+  return checked_bytes(row_bytes, static_cast<std::size_t>(context.planes.height[plane]), "output");
+}
+
+[[nodiscard]] VkDeviceSize max_output_bytes(const DFTKernelContext& context) {
+  VkDeviceSize bytes = 0;
+  for (int plane = 0; plane < context.format.num_planes; ++plane) {
+    bytes = std::max(bytes, packed_output_bytes(context, plane));
+  }
+  return std::max<VkDeviceSize>(bytes, 1);
+}
+
 [[nodiscard]] fft::VulkanDeviceBuffer make_workspace_buffer(fft::VulkanRuntime& runtime, VkDeviceSize size) {
   try {
     return fft::make_vulkan_storage_buffer(runtime, size, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
@@ -93,6 +119,7 @@ struct VulkanDftWorkspaceShape {
   int scratch_slots {0};
   VkDeviceSize padded_frame_bytes {0};
   VkDeviceSize accumulation_bytes {0};
+  VkDeviceSize output_bytes {0};
 
   [[nodiscard]] bool operator==(const VulkanDftWorkspaceShape& other) const noexcept {
     return complex_stride == other.complex_stride &&
@@ -100,7 +127,8 @@ struct VulkanDftWorkspaceShape {
       batch_capacity == other.batch_capacity &&
       scratch_slots == other.scratch_slots &&
       padded_frame_bytes == other.padded_frame_bytes &&
-      accumulation_bytes == other.accumulation_bytes;
+      accumulation_bytes == other.accumulation_bytes &&
+      output_bytes == other.output_bytes;
   }
 };
 
@@ -122,7 +150,8 @@ struct VulkanDftCoefficientShape {
     batch_capacity,
     scratch_slots,
     max_padded_frame_bytes(context),
-    max_accumulation_bytes(context)
+    max_accumulation_bytes(context),
+    max_output_bytes(context)
   };
 }
 
@@ -218,6 +247,20 @@ struct AccumulateInversePushConstants {
 
 static_assert(sizeof(AccumulateInversePushConstants) == 32);
 
+struct WriteOutputPushConstants {
+  std::uint32_t accumulation_offset {0};
+  std::uint32_t accumulation_stride {0};
+  std::uint32_t output_stride_words {0};
+  std::uint32_t width {0};
+  std::uint32_t height {0};
+  std::uint32_t sample_kind {0};
+  std::uint32_t peak {0};
+  std::uint32_t reserved {0};
+  float multiplier {1.0f};
+};
+
+static_assert(sizeof(WriteOutputPushConstants) == 36);
+
 class VulkanDftWorkspace final {
 public:
   explicit VulkanDftWorkspace(fft::VulkanRuntime& runtime) noexcept
@@ -250,6 +293,7 @@ public:
       buffer = make_workspace_buffer(*runtime_, removed_mean_bytes);
     }
     accumulation_ = make_workspace_buffer(*runtime_, next.accumulation_bytes);
+    output_ = make_workspace_buffer(*runtime_, next.output_bytes);
 
     fft::clear_vulkan_buffer(*runtime_, padded_frame_);
     for (auto& buffer : fft_storage_) {
@@ -259,6 +303,7 @@ public:
       fft::clear_vulkan_buffer(*runtime_, buffer);
     }
     fft::clear_vulkan_buffer(*runtime_, accumulation_);
+    fft::clear_vulkan_buffer(*runtime_, output_);
 
     shape_ = next;
     ready_ = true;
@@ -288,6 +333,14 @@ public:
     return accumulation_.view();
   }
 
+  [[nodiscard]] fft::DeviceBufferView output() const noexcept {
+    return output_.view();
+  }
+
+  [[nodiscard]] fft::VulkanDeviceBuffer& output_buffer() noexcept {
+    return output_;
+  }
+
   [[nodiscard]] int fft_storage_stride() const noexcept {
     return shape_.fft_storage_stride;
   }
@@ -308,6 +361,7 @@ private:
   std::array<fft::VulkanDeviceBuffer, kDftFftPipelineSlots> fft_storage_;
   std::array<fft::VulkanDeviceBuffer, kDftFftPipelineSlots> removed_mean_;
   fft::VulkanDeviceBuffer accumulation_;
+  fft::VulkanDeviceBuffer output_;
 };
 
 class VulkanDftCoefficientCache final {
@@ -519,6 +573,35 @@ private:
   vulkan::ComputePipeline pipeline_;
 };
 
+class VulkanWriteOutputKernel final {
+public:
+  explicit VulkanWriteOutputKernel(fft::VulkanRuntime& runtime)
+    : pipeline_(
+        runtime,
+        std::span<const std::uint32_t>{kWriteOutputSpv, sizeof(kWriteOutputSpv) / sizeof(kWriteOutputSpv[0])},
+        2,
+        sizeof(WriteOutputPushConstants)
+      ) {}
+
+  void dispatch(
+    fft::DeviceBufferView accumulation,
+    fft::DeviceBufferView output,
+    const WriteOutputPushConstants& constants
+  ) const {
+    const std::array<fft::DeviceBufferView, 2> buffers {accumulation, output};
+    pipeline_.dispatch(
+      buffers,
+      &constants,
+      sizeof(constants),
+      ceil_div_u32(static_cast<int>(constants.output_stride_words), 16),
+      ceil_div_u32(static_cast<int>(constants.height), 16)
+    );
+  }
+
+private:
+  vulkan::ComputePipeline pipeline_;
+};
+
 } // namespace
 
 class VulkanDftExecutor final : public DftExecutor {
@@ -533,6 +616,7 @@ public:
     load_window_ = std::make_unique<VulkanLoadWindowKernel>(*runtime_);
     frequency_ops_ = std::make_unique<VulkanFrequencyOpsKernel>(*runtime_);
     accumulate_inverse_ = std::make_unique<VulkanAccumulateInverseKernel>(*runtime_);
+    write_output_ = std::make_unique<VulkanWriteOutputKernel>(*runtime_);
   }
 
   [[nodiscard]] DftExecutorCapabilities capabilities() const noexcept override {
@@ -624,12 +708,18 @@ public:
   void process_spatial(DftProcessSpatialRequest request) override {
     VulkanDftWorkspace& workspace = prepare_workspace(request.workspace, request.context);
     stage_spatial_forward_batches(workspace, request);
+    if (write_output_from_accumulation(workspace, request.destination, request.plane, request.context)) {
+      return;
+    }
     fallback_->process_spatial(request);
   }
 
   void process_temporal(DftProcessTemporalRequest request) override {
     VulkanDftWorkspace& workspace = prepare_workspace(request.workspace, request.context);
     stage_temporal_forward_batches(workspace, request);
+    if (write_output_from_accumulation(workspace, request.destination, request.plane, request.context)) {
+      return;
+    }
     fallback_->process_temporal(request);
   }
 
@@ -915,6 +1005,64 @@ private:
     );
   }
 
+  bool write_output_from_accumulation(
+    VulkanDftWorkspace& workspace,
+    DFTMutablePlaneBytes destination,
+    int plane,
+    const DFTKernelContext& context
+  ) {
+    if (context.block.dither_mode > 0) {
+      return false;
+    }
+
+    const int width = context.planes.width[plane];
+    const int height = context.planes.height[plane];
+    if (width <= 0 || height <= 0) {
+      return true;
+    }
+
+    const std::size_t accumulation_offset =
+      static_cast<std::size_t>((context.planes.pad_height[plane] - height) / 2) *
+        static_cast<std::size_t>(context.planes.e_stride[plane]) +
+      static_cast<std::size_t>((context.planes.pad_width[plane] - width) / 2);
+    const std::size_t output_stride_words = packed_output_stride_words(context, plane);
+    const std::size_t output_pitch_bytes = output_stride_words * 4u;
+    const std::size_t row_bytes = output_row_bytes(context, plane);
+    const std::size_t output_bytes = output_pitch_bytes * static_cast<std::size_t>(height);
+
+    const WriteOutputPushConstants constants {
+      checked_u32(accumulation_offset, "output accumulation offset"),
+      static_cast<std::uint32_t>(context.planes.e_stride[plane]),
+      checked_u32(output_stride_words, "output stride"),
+      static_cast<std::uint32_t>(width),
+      static_cast<std::uint32_t>(height),
+      load_window_sample_kind(context.format),
+      static_cast<std::uint32_t>(context.sample.peak),
+      0,
+      context.sample.multiplier
+    };
+
+    write_output_->dispatch(workspace.accumulation(), workspace.output(), constants);
+
+    std::vector<unsigned char> packed(output_bytes);
+    fft::download_from_vulkan_buffer(
+      *runtime_,
+      workspace.output_buffer(),
+      packed.data(),
+      static_cast<VkDeviceSize>(packed.size())
+    );
+
+    for (int y = 0; y < height; ++y) {
+      std::memcpy(
+        destination.data + static_cast<std::ptrdiff_t>(destination.stride_bytes) * y,
+        packed.data() + output_pitch_bytes * static_cast<std::size_t>(y),
+        row_bytes
+      );
+    }
+
+    return true;
+  }
+
   static void copy_plane_rows(
     const DftFramePlaneRequest& plane_request,
     int plane,
@@ -960,6 +1108,7 @@ private:
   std::unique_ptr<VulkanLoadWindowKernel> load_window_;
   std::unique_ptr<VulkanFrequencyOpsKernel> frequency_ops_;
   std::unique_ptr<VulkanAccumulateInverseKernel> accumulate_inverse_;
+  std::unique_ptr<VulkanWriteOutputKernel> write_output_;
   std::unique_ptr<DftExecutor> fallback_;
   std::mutex workspaces_mutex_;
   std::mutex coefficients_mutex_;

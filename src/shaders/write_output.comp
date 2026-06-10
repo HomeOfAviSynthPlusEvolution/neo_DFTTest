@@ -1,0 +1,94 @@
+#version 450
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, std430) readonly buffer AccumulationBuffer {
+  float accumulation_values[];
+};
+
+layout(set = 0, binding = 1, std430) writeonly buffer OutputBuffer {
+  uint output_words[];
+};
+
+layout(push_constant) uniform WriteOutputParams {
+  uint accumulation_offset;
+  uint accumulation_stride;
+  uint output_stride_words;
+  uint width;
+  uint height;
+  uint sample_kind;
+  uint peak;
+  uint reserved;
+  float multiplier;
+} params;
+
+uint cast_u8(float value) {
+  int sample_value = int(value + 0.5);
+  return uint(clamp(sample_value, 0, 255));
+}
+
+uint cast_u16(float value) {
+  int sample_value = int(value * params.multiplier + 0.5);
+  return uint(clamp(sample_value, 0, int(params.peak)));
+}
+
+float accumulation_at(uint x, uint y) {
+  return accumulation_values[params.accumulation_offset + y * params.accumulation_stride + x];
+}
+
+void write_u8_word(uint word_x, uint y) {
+  uint base_x = word_x * 4u;
+  if (base_x >= params.width) {
+    return;
+  }
+
+  uint packed = 0u;
+  for (uint lane = 0u; lane < 4u; ++lane) {
+    uint x = base_x + lane;
+    if (x < params.width) {
+      packed |= cast_u8(accumulation_at(x, y)) << (lane * 8u);
+    }
+  }
+  output_words[y * params.output_stride_words + word_x] = packed;
+}
+
+void write_u16_word(uint word_x, uint y) {
+  uint base_x = word_x * 2u;
+  if (base_x >= params.width) {
+    return;
+  }
+
+  uint packed = 0u;
+  for (uint lane = 0u; lane < 2u; ++lane) {
+    uint x = base_x + lane;
+    if (x < params.width) {
+      packed |= cast_u16(accumulation_at(x, y)) << (lane * 16u);
+    }
+  }
+  output_words[y * params.output_stride_words + word_x] = packed;
+}
+
+void write_float_word(uint x, uint y) {
+  if (x >= params.width) {
+    return;
+  }
+  output_words[y * params.output_stride_words + x] = floatBitsToUint(accumulation_at(x, y) * (1.0 / 255.0));
+}
+
+void main() {
+  uint word_x = gl_GlobalInvocationID.x;
+  uint y = gl_GlobalInvocationID.y;
+  if (word_x >= params.output_stride_words || y >= params.height) {
+    return;
+  }
+
+  if (params.sample_kind == 1u) {
+    write_u8_word(word_x, y);
+    return;
+  }
+  if (params.sample_kind == 2u) {
+    write_u16_word(word_x, y);
+    return;
+  }
+  write_float_word(word_x, y);
+}

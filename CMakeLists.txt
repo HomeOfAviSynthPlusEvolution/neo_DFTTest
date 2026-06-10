@@ -76,6 +76,7 @@ if(NEO_DFTTEST_ENABLE_VKFFT_VULKAN)
   set(NEO_DFTTEST_LOAD_WINDOW_SPV "${NEO_DFTTEST_GENERATED_DIR}/load_window_comp_spv.inc")
   set(NEO_DFTTEST_FREQUENCY_OPS_SPV "${NEO_DFTTEST_GENERATED_DIR}/frequency_ops_comp_spv.inc")
   set(NEO_DFTTEST_ACCUMULATE_INVERSE_SPV "${NEO_DFTTEST_GENERATED_DIR}/accumulate_inverse_comp_spv.inc")
+  set(NEO_DFTTEST_WRITE_OUTPUT_SPV "${NEO_DFTTEST_GENERATED_DIR}/write_output_comp_spv.inc")
   add_custom_command(
     OUTPUT "${NEO_DFTTEST_LOAD_WINDOW_SPV}"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${NEO_DFTTEST_GENERATED_DIR}"
@@ -97,7 +98,21 @@ if(NEO_DFTTEST_ENABLE_VKFFT_VULKAN)
     DEPENDS glslang-standalone "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/accumulate_inverse.comp"
     VERBATIM
   )
-  add_custom_target(neo-dfttest-vulkan-shaders DEPENDS "${NEO_DFTTEST_LOAD_WINDOW_SPV}" "${NEO_DFTTEST_FREQUENCY_OPS_SPV}" "${NEO_DFTTEST_ACCUMULATE_INVERSE_SPV}")
+  add_custom_command(
+    OUTPUT "${NEO_DFTTEST_WRITE_OUTPUT_SPV}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${NEO_DFTTEST_GENERATED_DIR}"
+    COMMAND $<TARGET_FILE:glslang-standalone> --quiet -V -x -S comp -o "${NEO_DFTTEST_WRITE_OUTPUT_SPV}" "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/write_output.comp"
+    DEPENDS glslang-standalone "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/write_output.comp"
+    VERBATIM
+  )
+  add_custom_target(
+    neo-dfttest-vulkan-shaders
+    DEPENDS
+      "${NEO_DFTTEST_LOAD_WINDOW_SPV}"
+      "${NEO_DFTTEST_FREQUENCY_OPS_SPV}"
+      "${NEO_DFTTEST_ACCUMULATE_INVERSE_SPV}"
+      "${NEO_DFTTEST_WRITE_OUTPUT_SPV}"
+  )
   add_dependencies(neo-dfttest neo-dfttest-vulkan-shaders)
   target_include_directories(neo-dfttest PRIVATE
     "${CMAKE_CURRENT_BINARY_DIR}/generated"
