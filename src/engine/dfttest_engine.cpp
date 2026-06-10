@@ -594,28 +594,25 @@ private:
     ds::MutableVideoFrameView& dst
   ) {
     const DFTKernelContext kernel_context = make_kernel_context(state_);
+    DftFrameProcessRequest request{
+      workspace,
+      DftProcessMode::spatial,
+      {},
+      state_.format.num_planes,
+      0,
+      kernel_context
+    };
 
     for (int plane = 0; plane < state_.format.num_planes; plane++) {
       const auto src_plane = engine::read_plane(src, plane, state_);
       const auto dst_plane = engine::write_plane(dst, plane, state_);
-
-      if (state_.planes.process[plane] == 3) {
-        std::array<DFTPlaneBytes, kMaxDftTemporalFrames> sources {};
-        sources[0] = DFTPlaneBytes{src_plane.data, src_plane.stride_bytes};
-        executor_->process(DftProcessRequest{
-          workspace,
-          plane,
-          DftProcessMode::spatial,
-          sources,
-          1,
-          DFTMutablePlaneBytes{dst_plane.data, dst_plane.stride_bytes},
-          0,
-          kernel_context
-        });
-      } else if (state_.planes.process[plane] == 2) {
-        engine::copy_plane_rows(src_plane, dst_plane);
-      }
+      auto& plane_request = request.planes[static_cast<std::size_t>(plane)];
+      plane_request.sources[0] = DFTPlaneBytes{src_plane.data, src_plane.stride_bytes};
+      plane_request.source_count = 1;
+      plane_request.destination = DFTMutablePlaneBytes{dst_plane.data, dst_plane.stride_bytes};
     }
+
+    executor_->process_frame(request);
   }
 
   void process_temporal_frame(
@@ -627,40 +624,44 @@ private:
   ) {
     const int pos = state_.block.temporal_size / 2;
     const DFTKernelContext kernel_context = make_kernel_context(state_);
+    DftFrameProcessRequest request{
+      workspace,
+      DftProcessMode::temporal,
+      {},
+      state_.format.num_planes,
+      pos,
+      kernel_context
+    };
+
+    std::array<ds::VideoFrameView, kMaxDftTemporalFrames> source_frames {};
+    for (int index = 0; index < state_.block.temporal_size; ++index) {
+      const int fn = index + n - pos;
+      const int fn_real = std::min(std::max(fn, 0), input_.num_frames - 1);
+      auto src_frame = provider.get(0, fn_real);
+      if (!src_frame.has_value()) {
+        throw std::runtime_error(src_frame.error().message);
+      }
+      source_frames[static_cast<std::size_t>(index)] = src_frame.value().frame;
+    }
 
     for (int plane = 0; plane < state_.format.num_planes; plane++) {
-      const auto src0_plane = engine::read_plane(current, plane, state_);
       const auto dst_plane = engine::write_plane(dst, plane, state_);
+      auto& plane_request = request.planes[static_cast<std::size_t>(plane)];
+      plane_request.source_count = state_.block.temporal_size;
+      plane_request.destination = DFTMutablePlaneBytes{dst_plane.data, dst_plane.stride_bytes};
 
-      if (state_.planes.process[plane] == 3) {
-        std::array<DFTPlaneBytes, kMaxDftTemporalFrames> sources {};
-
-        for (int i = 0; i < state_.block.temporal_size; i++) {
-          const int fn = i + n - pos;
-          const int fn_real = std::min(std::max(fn, 0), input_.num_frames - 1);
-          auto src_frame = provider.get(0, fn_real);
-          if (!src_frame.has_value()) {
-            throw std::runtime_error(src_frame.error().message);
-          }
-
-          const auto src_plane = engine::read_plane(src_frame.value().frame, plane, state_);
-          sources[static_cast<std::size_t>(i)] = DFTPlaneBytes{src_plane.data, src_plane.stride_bytes};
-        }
-
-        executor_->process(DftProcessRequest{
-          workspace,
+      for (int index = 0; index < state_.block.temporal_size; ++index) {
+        const auto src_plane = engine::read_plane(
+          source_frames[static_cast<std::size_t>(index)],
           plane,
-          DftProcessMode::temporal,
-          sources,
-          state_.block.temporal_size,
-          DFTMutablePlaneBytes{dst_plane.data, dst_plane.stride_bytes},
-          pos,
-          kernel_context
-        });
-      } else if (state_.planes.process[plane] == 2) {
-        engine::copy_plane_rows(src0_plane, dst_plane);
+          state_
+        );
+        plane_request.sources[static_cast<std::size_t>(index)] =
+          DFTPlaneBytes{src_plane.data, src_plane.stride_bytes};
       }
     }
+
+    executor_->process_frame(request);
   }
 
   unsigned int acquire_thread_slot() {

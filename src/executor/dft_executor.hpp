@@ -55,6 +55,21 @@ struct DftProcessRequest {
   const DFTKernelContext& context;
 };
 
+struct DftFramePlaneRequest {
+  std::array<DFTPlaneBytes, kMaxDftTemporalFrames> sources {};
+  int source_count {0};
+  DFTMutablePlaneBytes destination;
+};
+
+struct DftFrameProcessRequest {
+  DftWorkspaceLease workspace;
+  DftProcessMode mode {DftProcessMode::spatial};
+  std::array<DftFramePlaneRequest, 4> planes {};
+  int plane_count {0};
+  int temporal_position {0};
+  const DFTKernelContext& context;
+};
+
 class DftExecutor {
 public:
   virtual ~DftExecutor() = default;
@@ -66,6 +81,7 @@ public:
   ) const noexcept = 0;
 
   virtual void copy_pad(DftCopyPadRequest request) = 0;
+  virtual void process_frame(DftFrameProcessRequest request) = 0;
   virtual void process(DftProcessRequest request) = 0;
   virtual void process_spatial(DftProcessSpatialRequest request) = 0;
   virtual void process_temporal(DftProcessTemporalRequest request) = 0;

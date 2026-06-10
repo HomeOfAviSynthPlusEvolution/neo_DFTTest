@@ -2,6 +2,7 @@
 
 #include "core.h"
 
+#include <cstring>
 #include <stdexcept>
 
 namespace neo_dfttest {
@@ -34,6 +35,26 @@ public:
       throw std::runtime_error("CPU DFT executor has no copy-pad processor");
     }
     copy_pad_(request.plane, request.source, request.destination, request.context);
+  }
+
+  void process_frame(DftFrameProcessRequest request) override {
+    for (int plane = 0; plane < request.plane_count; ++plane) {
+      const auto& plane_request = request.planes[static_cast<std::size_t>(plane)];
+      if (request.context.planes.process[plane] == 3) {
+        process(DftProcessRequest{
+          request.workspace,
+          plane,
+          request.mode,
+          plane_request.sources,
+          plane_request.source_count,
+          plane_request.destination,
+          request.temporal_position,
+          request.context
+        });
+      } else if (request.context.planes.process[plane] == 2) {
+        copy_plane_rows(plane_request, plane, request);
+      }
+    }
   }
 
   void process(DftProcessRequest request) override {
@@ -105,6 +126,33 @@ public:
   }
 
 private:
+  static void copy_plane_rows(
+    const DftFramePlaneRequest& plane_request,
+    int plane,
+    const DftFrameProcessRequest& frame_request
+  ) {
+    const int source_index = frame_request.mode == DftProcessMode::temporal
+      ? frame_request.temporal_position
+      : 0;
+    if (source_index < 0 || source_index >= plane_request.source_count) {
+      throw std::runtime_error("CPU DFT executor copy plane source is missing");
+    }
+
+    const DFTPlaneBytes source = plane_request.sources[static_cast<std::size_t>(source_index)];
+    const DFTMutablePlaneBytes destination = plane_request.destination;
+    const int row_bytes =
+      frame_request.context.planes.width[plane] * frame_request.context.format.bytes_per_sample;
+    const int height = frame_request.context.planes.height[plane];
+
+    for (int y = 0; y < height; ++y) {
+      std::memcpy(
+        destination.data + static_cast<std::ptrdiff_t>(destination.stride_bytes) * y,
+        source.data + static_cast<std::ptrdiff_t>(source.stride_bytes) * y,
+        static_cast<std::size_t>(row_bytes)
+      );
+    }
+  }
+
   DFTCopyPadFunction copy_pad_ {nullptr};
   DFTProcessSpatialFunction process_spatial_ {nullptr};
   DFTProcessTemporalFunction process_temporal_ {nullptr};
