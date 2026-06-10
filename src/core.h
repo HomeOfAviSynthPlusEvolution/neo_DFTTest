@@ -9,10 +9,11 @@
 #include <utility>
 
 #include "dft_common.h"
+#include "workspace/dft_workspace.hpp"
 
 using DFTCopyPadFunction = void (*)(int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const DFTKernelContext& context) noexcept;
-using DFTProcessSpatialFunction = void (*)(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const DFTKernelContext& context);
-using DFTProcessTemporalFunction = void (*)(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, int temporal_position, const DFTKernelContext& context);
+using DFTProcessSpatialFunction = void (*)(neo_dfttest::DFTThreadWorkspaceView workspace, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const DFTKernelContext& context);
+using DFTProcessTemporalFunction = void (*)(neo_dfttest::DFTThreadWorkspaceView workspace, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, int temporal_position, const DFTKernelContext& context);
 
 struct DFTCpuProcessDispatch {
     DFTProcessSpatialFunction process_spatial {nullptr};
@@ -20,8 +21,8 @@ struct DFTCpuProcessDispatch {
 };
 
 template<int type> void filter_scalar(DFTFilterInput input) noexcept;
-template<typename T> void process_spatial_scalar(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const DFTKernelContext& context);
-template<typename T> void process_temporal_scalar(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, int temporal_position, const DFTKernelContext& context);
+template<typename T> void process_spatial_scalar(neo_dfttest::DFTThreadWorkspaceView workspace, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const DFTKernelContext& context);
+template<typename T> void process_temporal_scalar(neo_dfttest::DFTThreadWorkspaceView workspace, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, int temporal_position, const DFTKernelContext& context);
 
 DFTCopyPadFunction select_cpu_copy_pad(const DFTClipFormat& format) noexcept;
 DFTCpuProcessDispatch select_cpu_process_dispatch(unsigned opt, const DFTClipFormat& format) noexcept;

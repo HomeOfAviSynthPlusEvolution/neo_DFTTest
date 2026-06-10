@@ -408,8 +408,7 @@ static void ApplyFilterHighway(const DFTFilterBatchOperation& operation, const i
 
 // Implements spatial processing using Highway
 template<typename T>
-void ProcessSpatialHighway(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const DFTKernelContext& context) {
-    const auto workspace = neo_dfttest::dft_thread_workspace(context, thread_id);
+void ProcessSpatialHighway(DFTThreadWorkspaceView workspace, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const DFTKernelContext& context) {
     float* ebuff = workspace.accumulation;
     const int width = context.planes.pad_width[plane];
     const int height = context.planes.pad_height[plane];
@@ -460,8 +459,7 @@ void ProcessSpatialHighway(unsigned int thread_id, int plane, DFTPlaneBytes src,
 
 // Implements temporal processing using Highway
 template<typename T>
-void ProcessTemporalHighway(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const int pos, const DFTKernelContext& context) {
-    const auto workspace = neo_dfttest::dft_thread_workspace(context, thread_id);
+void ProcessTemporalHighway(DFTThreadWorkspaceView workspace, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const int pos, const DFTKernelContext& context) {
     float* ebuff = workspace.accumulation;
     const int width = context.planes.pad_width[plane];
     const int height = context.planes.pad_height[plane];

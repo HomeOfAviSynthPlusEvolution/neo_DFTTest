@@ -41,7 +41,7 @@ public:
       throw std::runtime_error("CPU DFT executor has no spatial processor");
     }
     process_spatial_(
-      request.thread_id,
+      request.workspace.host_view(),
       request.plane,
       request.source,
       request.destination,
@@ -54,7 +54,7 @@ public:
       throw std::runtime_error("CPU DFT executor has no temporal processor");
     }
     process_temporal_(
-      request.thread_id,
+      request.workspace.host_view(),
       request.plane,
       request.source,
       request.destination,

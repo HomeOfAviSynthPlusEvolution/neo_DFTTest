@@ -1,6 +1,7 @@
 #pragma once
 
 #include "dft_common.h"
+#include "workspace/dft_workspace.hpp"
 
 #include <memory>
 
@@ -21,7 +22,7 @@ struct DftCopyPadRequest {
 };
 
 struct DftProcessSpatialRequest {
-  unsigned int thread_id {0};
+  DftWorkspaceLease workspace;
   int plane {0};
   DFTPlaneBytes source;
   DFTMutablePlaneBytes destination;
@@ -29,7 +30,7 @@ struct DftProcessSpatialRequest {
 };
 
 struct DftProcessTemporalRequest {
-  unsigned int thread_id {0};
+  DftWorkspaceLease workspace;
   int plane {0};
   DFTPlaneBytes source;
   DFTMutablePlaneBytes destination;

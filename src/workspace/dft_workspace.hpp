@@ -21,6 +21,15 @@ struct DFTThreadWorkspaceView {
     float* dither_buffer {nullptr};
 };
 
+struct DftWorkspaceLease {
+    unsigned int slot_id {0};
+    DFTThreadWorkspaceView host;
+
+    [[nodiscard]] DFTThreadWorkspaceView host_view() const noexcept {
+        return host;
+    }
+};
+
 inline DFTThreadWorkspaceView dft_thread_workspace(DFTThreadScratchSlot& slot) noexcept {
     return DFTThreadWorkspaceView{
         slot.ebuff.data(),
@@ -30,8 +39,11 @@ inline DFTThreadWorkspaceView dft_thread_workspace(DFTThreadScratchSlot& slot) n
     };
 }
 
-inline DFTThreadWorkspaceView dft_thread_workspace(const DFTKernelContext& context, unsigned int thread_id) noexcept {
-    return dft_thread_workspace(context.scratch.slots[thread_id]);
+inline DftWorkspaceLease dft_workspace_lease(DFTThreadScratch& scratch, const unsigned int slot_id) noexcept {
+    return DftWorkspaceLease{
+        slot_id,
+        dft_thread_workspace(scratch.slots[slot_id])
+    };
 }
 
 inline void clear_accumulation(DFTThreadWorkspaceView workspace, std::size_t elements) noexcept {

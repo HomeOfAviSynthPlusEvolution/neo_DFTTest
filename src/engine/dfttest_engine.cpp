@@ -179,11 +179,11 @@ public:
     }
 
     if (state_.block.temporal_size == 1) {
-      process_spatial_frame(slot.id(), current.value().frame, dst);
+      process_spatial_frame(workspace_lease(slot.id()), current.value().frame, dst);
       return;
     }
 
-    process_temporal_frame(slot.id(), n, current.value().frame, provider, dst);
+    process_temporal_frame(workspace_lease(slot.id()), n, current.value().frame, provider, dst);
   }
 
   int cache_hints(int cachehints, int frame_range, int default_response) {
@@ -584,7 +584,7 @@ private:
   }
 
   void process_spatial_frame(
-    unsigned int thread_id,
+    DftWorkspaceLease workspace,
     const ds::VideoFrameView& src,
     ds::MutableVideoFrameView& dst
   ) {
@@ -607,7 +607,7 @@ private:
           kernel_context
         });
         executor_->process_spatial(DftProcessSpatialRequest{
-          thread_id,
+          workspace,
           plane,
           DFTPlaneBytes{padded_plane.data, padded_plane.stride_bytes},
           DFTMutablePlaneBytes{dst_plane.data, dst_plane.stride_bytes},
@@ -620,7 +620,7 @@ private:
   }
 
   void process_temporal_frame(
-    unsigned int thread_id,
+    DftWorkspaceLease workspace,
     int n,
     const ds::VideoFrameView& current,
     ds::VideoFrameProvider& provider,
@@ -658,7 +658,7 @@ private:
         }
 
         executor_->process_temporal(DftProcessTemporalRequest{
-          thread_id,
+          workspace,
           plane,
           DFTPlaneBytes{pad0.data(), state_.planes.pad_stride[plane]},
           DFTMutablePlaneBytes{dst_plane.data, dst_plane.stride_bytes},
@@ -682,6 +682,10 @@ private:
     thread_id_store_[thread_id] = 1;
     ensure_thread_buffers_unlocked(thread_id);
     return thread_id;
+  }
+
+  DftWorkspaceLease workspace_lease(unsigned int thread_id) noexcept {
+    return dft_workspace_lease(state_.scratch, thread_id);
   }
 
   void release_thread_slot(unsigned int thread_id) {

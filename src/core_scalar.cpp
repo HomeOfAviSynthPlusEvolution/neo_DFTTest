@@ -373,8 +373,7 @@ static void write_output_scalar(
 }
 
 template<typename T>
-void process_spatial_scalar(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const DFTKernelContext& context) {
-    const auto workspace = neo_dfttest::dft_thread_workspace(context, thread_id);
+void process_spatial_scalar(neo_dfttest::DFTThreadWorkspaceView workspace, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const DFTKernelContext& context) {
     float* ebuff = workspace.accumulation;
 
     const int width = context.planes.pad_width[plane];
@@ -436,8 +435,7 @@ void process_spatial_scalar(unsigned int thread_id, int plane, DFTPlaneBytes src
 }
 
 template<typename T>
-void process_temporal_scalar(unsigned int thread_id, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const int pos, const DFTKernelContext& context) {
-    const auto workspace = neo_dfttest::dft_thread_workspace(context, thread_id);
+void process_temporal_scalar(neo_dfttest::DFTThreadWorkspaceView workspace, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const int pos, const DFTKernelContext& context) {
     float* ebuff = workspace.accumulation;
 
     const int width = context.planes.pad_width[plane];
@@ -540,9 +538,9 @@ void dither_u8_scalar(DFTConstFloatPlane source, DFTMutableBytePlane destination
     );
 }
 
-template void process_spatial_scalar<uint8_t>(unsigned int, int, DFTPlaneBytes, DFTMutablePlaneBytes, const DFTKernelContext&);
-template void process_spatial_scalar<uint16_t>(unsigned int, int, DFTPlaneBytes, DFTMutablePlaneBytes, const DFTKernelContext&);
-template void process_spatial_scalar<float>(unsigned int, int, DFTPlaneBytes, DFTMutablePlaneBytes, const DFTKernelContext&);
-template void process_temporal_scalar<uint8_t>(unsigned int, int, DFTPlaneBytes, DFTMutablePlaneBytes, int, const DFTKernelContext&);
-template void process_temporal_scalar<uint16_t>(unsigned int, int, DFTPlaneBytes, DFTMutablePlaneBytes, int, const DFTKernelContext&);
-template void process_temporal_scalar<float>(unsigned int, int, DFTPlaneBytes, DFTMutablePlaneBytes, int, const DFTKernelContext&);
+template void process_spatial_scalar<uint8_t>(neo_dfttest::DFTThreadWorkspaceView, int, DFTPlaneBytes, DFTMutablePlaneBytes, const DFTKernelContext&);
+template void process_spatial_scalar<uint16_t>(neo_dfttest::DFTThreadWorkspaceView, int, DFTPlaneBytes, DFTMutablePlaneBytes, const DFTKernelContext&);
+template void process_spatial_scalar<float>(neo_dfttest::DFTThreadWorkspaceView, int, DFTPlaneBytes, DFTMutablePlaneBytes, const DFTKernelContext&);
+template void process_temporal_scalar<uint8_t>(neo_dfttest::DFTThreadWorkspaceView, int, DFTPlaneBytes, DFTMutablePlaneBytes, int, const DFTKernelContext&);
+template void process_temporal_scalar<uint16_t>(neo_dfttest::DFTThreadWorkspaceView, int, DFTPlaneBytes, DFTMutablePlaneBytes, int, const DFTKernelContext&);
+template void process_temporal_scalar<float>(neo_dfttest::DFTThreadWorkspaceView, int, DFTPlaneBytes, DFTMutablePlaneBytes, int, const DFTKernelContext&);
