@@ -23,7 +23,7 @@
 */
 
 #include "core.h"
-#include "core_batch_pipeline.hpp"
+#include "pipeline/dft_cpu_pipeline.hpp"
 
 
 template<typename T>
@@ -372,142 +372,75 @@ static void write_output_scalar(
         cast(ebp, dstp, dstWidth, dstHeight, dstStride, ebpStride, context.sample.multiplier, context.sample.peak);
 }
 
+struct ScalarDftStages {
+    template<typename T>
+    void load_windowed_block(
+        DFTConstSampleBlock<T> source,
+        DFTConstFloatSpan window,
+        DFTMutableFloatSpan destination,
+        float divisor
+    ) const noexcept {
+        ::load_windowed_block<T>(source, window, destination, divisor);
+    }
+
+    void remove_mean(DFTMutableFloatSpan coefficients, DFTConstFloatSpan reference, DFTMutableFloatSpan removed) const noexcept {
+        ::remove_mean(coefficients, reference, removed);
+    }
+
+    void apply_filter(const DFTFilterBatchOperation& operation, int index) const noexcept {
+        apply_filter_scalar(operation, index);
+    }
+
+    void add_mean(DFTMutableFloatSpan coefficients, DFTConstFloatSpan removed) const noexcept {
+        ::add_mean(coefficients, removed);
+    }
+
+    void accumulate_inverse_block(
+        const float* inverse,
+        const float* window,
+        float* output,
+        const DFTKernelContext& context,
+        int output_stride
+    ) const noexcept {
+        accumulate_inverse_block_scalar(inverse, window, output, context, output_stride);
+    }
+
+    template<typename T>
+    void write_output(
+        neo_dfttest::DFTThreadWorkspaceView workspace,
+        DFTMutablePlaneBytes dst,
+        int plane,
+        int padded_width,
+        int padded_height,
+        const DFTKernelContext& context
+    ) const noexcept {
+        write_output_scalar<T>(workspace, dst, plane, padded_width, padded_height, context);
+    }
+};
+
 template<typename T>
 void process_spatial_scalar(neo_dfttest::DFTThreadWorkspaceView workspace, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const DFTKernelContext& context) {
-    float* ebuff = workspace.accumulation;
-
-    const int width = context.planes.pad_width[plane];
-    const int height = context.planes.pad_height[plane];
-    const int eheight = context.planes.e_height[plane];
-    const auto source = dft_const_sample_plane<T>(src);
-    const int srcStride = source.stride_elements;
-    const int ebpStride = context.planes.e_stride[plane];
-    const T * srcp = source.data;
-
-    neo_dfttest::clear_accumulation(workspace, static_cast<std::size_t>(ebpStride) * height);
-
-    neo_dfttest::run_dft_batch_pipeline(
+    neo_dfttest::run_cpu_spatial_dft_pipeline<T>(
+        workspace,
+        plane,
+        src,
+        dst,
         context,
-        workspace.batch,
-        width,
-        eheight,
-        [&](int y, int x, float* dftr) noexcept {
-            load_windowed_block<T>(
-                DFTConstSampleBlock<T>{srcp + y * srcStride + x, srcStride, context.block.spatial_size},
-                DFTConstFloatSpan{context.coefficients.window.data, context.derived.block_area},
-                DFTMutableFloatSpan{dftr, context.derived.block_area},
-                context.sample.divisor
-            );
-        },
-        [&](neo_dfttest::DFTCompletedBatch ready) {
-            const auto filter_operation = dft_filter_batch_operation(ready.coefficients, context);
-            for (int index = 0; index < ready.batch.count; ++index) {
-                auto* dftc = ready.coefficients.block(index);
-                auto* dftc2 = ready.removed_mean.block(index);
-                if (context.block.zero_mean)
-                    remove_mean(
-                        DFTMutableFloatSpan{complex_float_data(dftc), context.derived.coefficient_count},
-                        DFTConstFloatSpan{complex_float_data(context.coefficients.window_dft.data), context.derived.coefficient_count},
-                        DFTMutableFloatSpan{complex_float_data(dftc2), context.derived.coefficient_count}
-                    );
-
-                apply_filter_scalar(filter_operation, index);
-
-                if (context.block.zero_mean)
-                    add_mean(
-                        DFTMutableFloatSpan{complex_float_data(dftc), context.derived.coefficient_count},
-                        DFTConstFloatSpan{complex_float_data(dftc2), context.derived.coefficient_count}
-                    );
-            }
-
-            neo_dfttest::DftFftOperations{context}.submit_inverse_and_wait(ready.coefficients, ready.real);
-
-            float* output_row = ebuff + ready.y * ebpStride;
-            for (int index = 0; index < ready.batch.count; ++index) {
-                float* dftr = ready.real.block(index);
-                const int block_x = dft_block_job(ready.batch, index).x;
-                accumulate_inverse_block_scalar(dftr, context.coefficients.window.data, output_row + block_x, context, ebpStride);
-            }
-        }
+        ScalarDftStages{}
     );
-
-    write_output_scalar<T>(workspace, dst, plane, width, height, context);
 }
 
 template<typename T>
 void process_temporal_scalar(neo_dfttest::DFTThreadWorkspaceView workspace, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const int pos, const DFTKernelContext& context) {
-    float* ebuff = workspace.accumulation;
-
-    const int width = context.planes.pad_width[plane];
-    const int height = context.planes.pad_height[plane];
-    const int eheight = context.planes.e_height[plane];
-    const auto first_source = dft_const_sample_plane<T>(src);
-    const int srcStride = first_source.stride_elements;
-    const int ebpStride = context.planes.e_stride[plane];
-
-    const T * srcp[15] = {};
-    for (int i = 0; i < context.block.temporal_size; i++) {
-        const auto source = dft_const_sample_plane<T>(
-            DFTPlaneBytes{src.data + context.planes.pad_block_size[plane] * i, src.stride_bytes}
-        );
-        srcp[i] = source.data;
-    }
-
-    neo_dfttest::clear_accumulation(workspace, static_cast<std::size_t>(ebpStride) * height);
-
-    neo_dfttest::run_dft_batch_pipeline(
+    neo_dfttest::run_cpu_temporal_dft_pipeline<T>(
+        workspace,
+        plane,
+        src,
+        dst,
+        pos,
         context,
-        workspace.batch,
-        width,
-        eheight,
-        [&](int y, int x, float* dftr) noexcept {
-            for (int z = 0; z < context.block.temporal_size; z++)
-                load_windowed_block<T>(
-                    DFTConstSampleBlock<T>{srcp[z] + y * srcStride + x, srcStride, context.block.spatial_size},
-                    DFTConstFloatSpan{context.coefficients.window.data + context.derived.block_area * z, context.derived.block_area},
-                    DFTMutableFloatSpan{dftr + context.derived.block_area * z, context.derived.block_area},
-                    context.sample.divisor
-                );
-        },
-        [&](neo_dfttest::DFTCompletedBatch ready) {
-            const auto filter_operation = dft_filter_batch_operation(ready.coefficients, context);
-            for (int index = 0; index < ready.batch.count; ++index) {
-                auto* dftc = ready.coefficients.block(index);
-                auto* dftc2 = ready.removed_mean.block(index);
-                if (context.block.zero_mean)
-                    remove_mean(
-                        DFTMutableFloatSpan{complex_float_data(dftc), context.derived.coefficient_count},
-                        DFTConstFloatSpan{complex_float_data(context.coefficients.window_dft.data), context.derived.coefficient_count},
-                        DFTMutableFloatSpan{complex_float_data(dftc2), context.derived.coefficient_count}
-                    );
-
-                apply_filter_scalar(filter_operation, index);
-
-                if (context.block.zero_mean)
-                    add_mean(
-                        DFTMutableFloatSpan{complex_float_data(dftc), context.derived.coefficient_count},
-                        DFTConstFloatSpan{complex_float_data(dftc2), context.derived.coefficient_count}
-                    );
-            }
-
-            neo_dfttest::DftFftOperations{context}.submit_inverse_and_wait(ready.coefficients, ready.real);
-
-            for (int index = 0; index < ready.batch.count; ++index) {
-                float* dftr = ready.real.block(index);
-                const int block_x = dft_block_job(ready.batch, index).x;
-                const int temporal_offset = pos * context.derived.block_area;
-                accumulate_inverse_block_scalar(
-                    dftr + temporal_offset,
-                    context.coefficients.window.data + temporal_offset,
-                    ebuff + ready.y * ebpStride + block_x,
-                    context,
-                    ebpStride
-                );
-            }
-        }
+        ScalarDftStages{}
     );
-
-    write_output_scalar<T>(workspace, dst, plane, width, height, context);
 }
 
 template<typename T>

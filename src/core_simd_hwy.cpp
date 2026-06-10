@@ -9,7 +9,7 @@
 
 #include "dft_common.h"
 #include "core.h"
-#include "core_batch_pipeline.hpp"
+#include "pipeline/dft_cpu_pipeline.hpp"
 #include <algorithm>
 #include <numeric>
 #include <type_traits> // Required for std::is_same_v
@@ -406,119 +406,77 @@ static void ApplyFilterHighway(const DFTFilterBatchOperation& operation, const i
     FilterCoefficientsHighway(operation.plan, operation.input(index));
 }
 
+struct HighwayDftStages {
+    template<typename T>
+    void load_windowed_block(
+        DFTConstSampleBlock<T> source,
+        DFTConstFloatSpan window,
+        DFTMutableFloatSpan destination,
+        float divisor
+    ) const {
+        LoadWindowedBlock(source.data, window.data, destination.data, source.stride_elements, source.size, divisor);
+    }
+
+    void remove_mean(DFTMutableFloatSpan coefficients, DFTConstFloatSpan reference, DFTMutableFloatSpan removed) const {
+        RemoveMeanHighway(coefficients.data, reference.data, coefficients.size, removed.data);
+    }
+
+    void apply_filter(const DFTFilterBatchOperation& operation, int index) const {
+        ApplyFilterHighway(operation, index);
+    }
+
+    void add_mean(DFTMutableFloatSpan coefficients, DFTConstFloatSpan removed) const {
+        AddMeanHighway(coefficients.data, coefficients.size, removed.data);
+    }
+
+    void accumulate_inverse_block(
+        const float* inverse,
+        const float* window,
+        float* output,
+        const DFTKernelContext& context,
+        int output_stride
+    ) const {
+        AccumulateInverseBlockHighway(inverse, window, output, context, output_stride);
+    }
+
+    template<typename T>
+    void write_output(
+        DFTThreadWorkspaceView workspace,
+        DFTMutablePlaneBytes dst,
+        int plane,
+        int padded_width,
+        int padded_height,
+        const DFTKernelContext& context
+    ) const {
+        WriteOutputHighway<T>(workspace, dst, plane, padded_width, padded_height, context);
+    }
+};
+
 // Implements spatial processing using Highway
 template<typename T>
 void ProcessSpatialHighway(DFTThreadWorkspaceView workspace, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const DFTKernelContext& context) {
-    float* ebuff = workspace.accumulation;
-    const int width = context.planes.pad_width[plane];
-    const int height = context.planes.pad_height[plane];
-    const int eheight = context.planes.e_height[plane];
-    const auto source = dft_const_sample_plane<T>(src);
-    const int srcStride = source.stride_elements;
-    const int ebpStride = context.planes.e_stride[plane];
-
-    neo_dfttest::clear_accumulation(workspace, static_cast<std::size_t>(ebpStride) * height);
-
-    const T * srcp = source.data;
-
-    neo_dfttest::run_dft_batch_pipeline(
+    neo_dfttest::run_cpu_spatial_dft_pipeline<T>(
+        workspace,
+        plane,
+        src,
+        dst,
         context,
-        workspace.batch,
-        width,
-        eheight,
-        [&](int y, int x, float* dftr) {
-            LoadWindowedBlock(srcp + y * srcStride + x, context.coefficients.window.data, dftr, srcStride, context.block.spatial_size, context.sample.divisor);
-        },
-        [&](neo_dfttest::DFTCompletedBatch ready) {
-            const auto filter_operation = dft_filter_batch_operation(ready.coefficients, context);
-            for (int index = 0; index < ready.batch.count; ++index) {
-                auto* dftc = ready.coefficients.block(index);
-                auto* dftc2 = ready.removed_mean.block(index);
-                if (context.block.zero_mean)
-                    RemoveMeanHighway(complex_float_data(dftc), complex_float_data(context.coefficients.window_dft.data), context.derived.coefficient_count, complex_float_data(dftc2));
-
-                ApplyFilterHighway(filter_operation, index);
-
-                if (context.block.zero_mean)
-                    AddMeanHighway(complex_float_data(dftc), context.derived.coefficient_count, complex_float_data(dftc2));
-            }
-
-            DftFftOperations{context}.submit_inverse_and_wait(ready.coefficients, ready.real);
-
-            float* output_row = ebuff + ready.y * ebpStride;
-            for (int index = 0; index < ready.batch.count; ++index) {
-                float* dftr = ready.real.block(index);
-                const int block_x = dft_block_job(ready.batch, index).x;
-                AccumulateInverseBlockHighway(dftr, context.coefficients.window.data, output_row + block_x, context, ebpStride);
-            }
-        }
+        HighwayDftStages{}
     );
-
-    WriteOutputHighway<T>(workspace, dst, plane, width, height, context);
 }
 
 // Implements temporal processing using Highway
 template<typename T>
 void ProcessTemporalHighway(DFTThreadWorkspaceView workspace, int plane, DFTPlaneBytes src, DFTMutablePlaneBytes dst, const int pos, const DFTKernelContext& context) {
-    float* ebuff = workspace.accumulation;
-    const int width = context.planes.pad_width[plane];
-    const int height = context.planes.pad_height[plane];
-    const int eheight = context.planes.e_height[plane];
-    const auto first_source = dft_const_sample_plane<T>(src);
-    const int srcStride = first_source.stride_elements;
-    const int ebpStride = context.planes.e_stride[plane];
-
-    neo_dfttest::clear_accumulation(workspace, static_cast<std::size_t>(ebpStride) * height);
-
-    const T * srcp[15] = {}; // Max context.block.temporal_size is 15 based on original code comments
-    for (int i = 0; i < context.block.temporal_size; i++) {
-        const auto source = dft_const_sample_plane<T>(
-            DFTPlaneBytes{src.data + context.planes.pad_block_size[plane] * i, src.stride_bytes}
-        );
-        srcp[i] = source.data;
-    }
-
-    neo_dfttest::run_dft_batch_pipeline(
+    neo_dfttest::run_cpu_temporal_dft_pipeline<T>(
+        workspace,
+        plane,
+        src,
+        dst,
+        pos,
         context,
-        workspace.batch,
-        width,
-        eheight,
-        [&](int y, int x, float* dftr) {
-            for (int z = 0; z < context.block.temporal_size; z++)
-                LoadWindowedBlock(srcp[z] + y * srcStride + x, context.coefficients.window.data + context.derived.block_area * z, dftr + context.derived.block_area * z, srcStride, context.block.spatial_size, context.sample.divisor);
-        },
-        [&](neo_dfttest::DFTCompletedBatch ready) {
-            const auto filter_operation = dft_filter_batch_operation(ready.coefficients, context);
-            for (int index = 0; index < ready.batch.count; ++index) {
-                auto* dftc = ready.coefficients.block(index);
-                auto* dftc2 = ready.removed_mean.block(index);
-                if (context.block.zero_mean)
-                    RemoveMeanHighway(complex_float_data(dftc), complex_float_data(context.coefficients.window_dft.data), context.derived.coefficient_count, complex_float_data(dftc2));
-
-                ApplyFilterHighway(filter_operation, index);
-
-                if (context.block.zero_mean)
-                    AddMeanHighway(complex_float_data(dftc), context.derived.coefficient_count, complex_float_data(dftc2));
-            }
-
-            DftFftOperations{context}.submit_inverse_and_wait(ready.coefficients, ready.real);
-
-            for (int index = 0; index < ready.batch.count; ++index) {
-                float* dftr = ready.real.block(index);
-                const int block_x = dft_block_job(ready.batch, index).x;
-                const int temporal_offset = pos * context.derived.block_area;
-                AccumulateInverseBlockHighway(
-                    dftr + temporal_offset,
-                    context.coefficients.window.data + temporal_offset,
-                    ebuff + ready.y * ebpStride + block_x,
-                    context,
-                    ebpStride
-                );
-            }
-        }
+        HighwayDftStages{}
     );
-
-    WriteOutputHighway<T>(workspace, dst, plane, width, height, context);
 }
 
 } // namespace HWY_NAMESPACE
