@@ -1,7 +1,6 @@
 #include "executor/dft_executor.hpp"
 
 #include "core.h"
-#include "executor/dft_fft_operation.hpp"
 #include "fft/vkfft_vulkan_buffer.hpp"
 #include "vulkan/vulkan_compute.hpp"
 
@@ -199,6 +198,12 @@ struct VulkanDftCoefficientShape {
 
 [[nodiscard]] std::uint32_t ceil_div_u32(int value, int divisor) noexcept {
   return static_cast<std::uint32_t>((value + divisor - 1) / divisor);
+}
+
+[[nodiscard]] bool requires_queue_idle_after_submit(fft::VulkanRuntime& runtime) noexcept {
+  VkPhysicalDeviceProperties properties {};
+  vkGetPhysicalDeviceProperties(runtime.physical_device(), &properties);
+  return properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU;
 }
 
 [[nodiscard]] std::uint32_t checked_u32(std::size_t value, const char* name) {
@@ -541,6 +546,30 @@ public:
     std::span<const LoadWindowPushConstants> constants
   ) const {
     const std::array<fft::DeviceBufferView, 3> buffers {source, window, output};
+    pipeline_.dispatch_many(buffers, make_dispatches(constants));
+  }
+
+  [[nodiscard]] vulkan::ComputeBinding bind(
+    fft::DeviceBufferView source,
+    fft::DeviceBufferView window,
+    fft::DeviceBufferView output
+  ) const {
+    const std::array<fft::DeviceBufferView, 3> buffers {source, window, output};
+    return pipeline_.bind_storage_buffers(buffers);
+  }
+
+  void record(
+    VkCommandBuffer command_buffer,
+    const vulkan::ComputeBinding& binding,
+    std::span<const LoadWindowPushConstants> constants
+  ) const {
+    pipeline_.record_dispatch_many(command_buffer, binding, make_dispatches(constants));
+  }
+
+private:
+  [[nodiscard]] static std::vector<vulkan::ComputeDispatch> make_dispatches(
+    std::span<const LoadWindowPushConstants> constants
+  ) {
     std::vector<vulkan::ComputeDispatch> dispatches;
     dispatches.reserve(constants.size());
     for (const LoadWindowPushConstants& item : constants) {
@@ -552,10 +581,9 @@ public:
         1
       });
     }
-    pipeline_.dispatch_many(buffers, dispatches);
+    return dispatches;
   }
 
-private:
   vulkan::ComputePipeline pipeline_;
 };
 
@@ -585,16 +613,7 @@ public:
       coefficient_tables.pmins(),
       coefficient_tables.pmaxs()
     };
-    const FrequencyOpsPushConstants constants {
-      static_cast<std::uint32_t>(context.derived.coefficient_count),
-      static_cast<std::uint32_t>(coefficients.stride_elements * 2),
-      static_cast<std::uint32_t>(removed_mean.stride_elements * 2),
-      filter_kind_id(context.filter_plan.kind),
-      static_cast<std::uint32_t>(operation),
-      context.filter_plan.custom_f0_beta ? 1u : 0u,
-      context.block.f0_beta,
-      0
-    };
+    const FrequencyOpsPushConstants constants = make_constants(coefficients, removed_mean, context, operation);
     pipeline_.dispatch(
       buffers,
       &constants,
@@ -604,7 +623,61 @@ public:
     );
   }
 
+  [[nodiscard]] vulkan::ComputeBinding bind(
+    DFTMutableComplexBatchView coefficients,
+    DFTMutableComplexBatchView removed_mean,
+    const VulkanDftCoefficientCache& coefficient_tables
+  ) const {
+    const std::array<fft::DeviceBufferView, 7> buffers {
+      coefficients.device,
+      removed_mean.device,
+      coefficient_tables.window_dft(),
+      coefficient_tables.sigmas(),
+      coefficient_tables.sigmas2(),
+      coefficient_tables.pmins(),
+      coefficient_tables.pmaxs()
+    };
+    return pipeline_.bind_storage_buffers(buffers);
+  }
+
+  void record(
+    VkCommandBuffer command_buffer,
+    const vulkan::ComputeBinding& binding,
+    DFTMutableComplexBatchView coefficients,
+    DFTMutableComplexBatchView removed_mean,
+    const DFTKernelContext& context,
+    FrequencyOp operation
+  ) const {
+    const FrequencyOpsPushConstants constants = make_constants(coefficients, removed_mean, context, operation);
+    const vulkan::ComputeDispatch dispatch {
+      &constants,
+      sizeof(constants),
+      ceil_div_u32(context.derived.complex_count, 256),
+      static_cast<std::uint32_t>(coefficients.count),
+      1
+    };
+    pipeline_.record_dispatch_many(command_buffer, binding, std::span<const vulkan::ComputeDispatch>{&dispatch, 1});
+  }
+
 private:
+  [[nodiscard]] static FrequencyOpsPushConstants make_constants(
+    DFTMutableComplexBatchView coefficients,
+    DFTMutableComplexBatchView removed_mean,
+    const DFTKernelContext& context,
+    FrequencyOp operation
+  ) noexcept {
+    return FrequencyOpsPushConstants{
+      static_cast<std::uint32_t>(context.derived.coefficient_count),
+      static_cast<std::uint32_t>(coefficients.stride_elements * 2),
+      static_cast<std::uint32_t>(removed_mean.stride_elements * 2),
+      filter_kind_id(context.filter_plan.kind),
+      static_cast<std::uint32_t>(operation),
+      context.filter_plan.custom_f0_beta ? 1u : 0u,
+      context.block.f0_beta,
+      0
+    };
+  }
+
   vulkan::ComputePipeline pipeline_;
 };
 
@@ -634,6 +707,30 @@ public:
     std::span<const AccumulateInversePushConstants> constants
   ) const {
     const std::array<fft::DeviceBufferView, 3> buffers {inverse, window, accumulation};
+    pipeline_.dispatch_many(buffers, make_dispatches(constants));
+  }
+
+  [[nodiscard]] vulkan::ComputeBinding bind(
+    fft::DeviceBufferView inverse,
+    fft::DeviceBufferView window,
+    fft::DeviceBufferView accumulation
+  ) const {
+    const std::array<fft::DeviceBufferView, 3> buffers {inverse, window, accumulation};
+    return pipeline_.bind_storage_buffers(buffers);
+  }
+
+  void record(
+    VkCommandBuffer command_buffer,
+    const vulkan::ComputeBinding& binding,
+    std::span<const AccumulateInversePushConstants> constants
+  ) const {
+    pipeline_.record_dispatch_many(command_buffer, binding, make_dispatches(constants));
+  }
+
+private:
+  [[nodiscard]] static std::vector<vulkan::ComputeDispatch> make_dispatches(
+    std::span<const AccumulateInversePushConstants> constants
+  ) {
     std::vector<vulkan::ComputeDispatch> dispatches;
     dispatches.reserve(constants.size());
     for (const AccumulateInversePushConstants& item : constants) {
@@ -646,10 +743,9 @@ public:
         true
       });
     }
-    pipeline_.dispatch_many(buffers, dispatches);
+    return dispatches;
   }
 
-private:
   vulkan::ComputePipeline pipeline_;
 };
 
@@ -690,6 +786,7 @@ class VulkanDftExecutor final : public DftExecutor {
 public:
   VulkanDftExecutor(unsigned opt, DFTClipFormat format, fft::VulkanRuntime* runtime)
     : runtime_(runtime),
+      wait_queue_idle_after_submit_(runtime != nullptr && requires_queue_idle_after_submit(*runtime)),
       copy_pad_(select_cpu_copy_pad(format)) {
     (void)opt;
     if (runtime_ == nullptr) {
@@ -1046,55 +1143,157 @@ private:
           const DFTBlockJob& job = dft_block_job(batch, index);
           load_batch_block(job.y, job.x, index, active_slot, load_windows);
         }
-        dispatch_load_windows(workspace, active_slot, load_windows);
 
-        DftFftOperations{context}.submit_forward(real, coefficients).wait();
-        apply_frequency_ops(coefficients, workspace.removed_mean_batch(active_slot, batch.count), context);
-        DftFftOperations{context}.submit_inverse(coefficients, real).wait();
         std::vector<AccumulateInversePushConstants> accumulations;
         accumulations.reserve(static_cast<std::size_t>(batch.count));
         for (int index = 0; index < batch.count; ++index) {
           const DFTBlockJob& job = dft_block_job(batch, index);
           accumulate_batch_block(job.y, job.x, index, active_slot, accumulations);
         }
-        dispatch_accumulate_inverse_blocks(workspace, active_slot, accumulations);
+
+        submit_forward_batch(
+          workspace,
+          active_slot,
+          real,
+          coefficients,
+          workspace.removed_mean_batch(active_slot, batch.count),
+          load_windows,
+          accumulations,
+          context
+        );
         active_slot = 1 - active_slot;
       }
     }
   }
 
-  void apply_frequency_ops(
+  struct ForwardBatchRecordRequest {
+    VulkanDftExecutor* executor;
+    const vulkan::ComputeBinding* load_binding;
+    const vulkan::ComputeBinding* frequency_binding;
+    const vulkan::ComputeBinding* accumulate_binding;
+    DFTMutableRealBatchView real;
+    DFTMutableComplexBatchView coefficients;
+    DFTMutableComplexBatchView removed_mean;
+    const LoadWindowPushConstants* load_windows;
+    std::size_t load_window_count;
+    const AccumulateInversePushConstants* accumulations;
+    std::size_t accumulation_count;
+    const DFTKernelContext* context;
+  };
+
+  void submit_forward_batch(
+    VulkanDftWorkspace& workspace,
+    int slot,
+    DFTMutableRealBatchView real,
     DFTMutableComplexBatchView coefficients,
     DFTMutableComplexBatchView removed_mean,
+    std::span<const LoadWindowPushConstants> load_windows,
+    std::span<const AccumulateInversePushConstants> accumulations,
     const DFTKernelContext& context
   ) {
+    auto load_binding = load_window_->bind(
+      workspace.source_frames(),
+      coefficients_->window(),
+      real.device
+    );
+    auto frequency_binding = frequency_ops_->bind(
+      coefficients,
+      removed_mean,
+      *coefficients_
+    );
+    auto accumulate_binding = accumulate_inverse_->bind(
+      workspace.fft_real_batch(slot, 1).device,
+      coefficients_->window(),
+      workspace.accumulation()
+    );
+
+    ForwardBatchRecordRequest request {
+      this,
+      &load_binding,
+      &frequency_binding,
+      &accumulate_binding,
+      real,
+      coefficients,
+      removed_mean,
+      load_windows.data(),
+      load_windows.size(),
+      accumulations.data(),
+      accumulations.size(),
+      &context
+    };
+
+    fft::submit_vulkan_commands(
+      *runtime_,
+      [](VkCommandBuffer command_buffer, void* user) {
+        const auto& request = *static_cast<ForwardBatchRecordRequest*>(user);
+        request.executor->record_forward_batch(command_buffer, request);
+      },
+      &request,
+      wait_queue_idle_after_submit_
+    );
+  }
+
+  void record_forward_batch(
+    VkCommandBuffer command_buffer,
+    const ForwardBatchRecordRequest& request
+  ) const {
+    const DFTKernelContext& context = *request.context;
+    load_window_->record(
+      command_buffer,
+      *request.load_binding,
+      std::span<const LoadWindowPushConstants>{request.load_windows, request.load_window_count}
+    );
+
+    if (!context.fft.backend->try_record_vulkan_r2c(
+      context.fft.forward,
+      command_buffer,
+      fft::R2CBatch{request.real.fft_view(), request.coefficients.fft_view(), request.real.count}
+    )) {
+      throw std::runtime_error("Vulkan DFT executor could not record forward VkFFT");
+    }
+
     if (context.block.zero_mean) {
-      frequency_ops_->dispatch(
-        coefficients,
-        removed_mean,
-        *coefficients_,
+      frequency_ops_->record(
+        command_buffer,
+        *request.frequency_binding,
+        request.coefficients,
+        request.removed_mean,
         context,
         FrequencyOp::remove_mean
       );
     }
-
-    frequency_ops_->dispatch(
-      coefficients,
-      removed_mean,
-      *coefficients_,
+    frequency_ops_->record(
+      command_buffer,
+      *request.frequency_binding,
+      request.coefficients,
+      request.removed_mean,
       context,
       FrequencyOp::filter
     );
-
     if (context.block.zero_mean) {
-      frequency_ops_->dispatch(
-        coefficients,
-        removed_mean,
-        *coefficients_,
+      frequency_ops_->record(
+        command_buffer,
+        *request.frequency_binding,
+        request.coefficients,
+        request.removed_mean,
         context,
         FrequencyOp::add_mean
       );
     }
+
+    if (!context.fft.backend->try_record_vulkan_c2r(
+      context.fft.inverse,
+      command_buffer,
+      fft::C2RBatch{request.coefficients.fft_view(), request.real.fft_view(), request.coefficients.count}
+    )) {
+      throw std::runtime_error("Vulkan DFT executor could not record inverse VkFFT");
+    }
+
+    accumulate_inverse_->record(
+      command_buffer,
+      *request.accumulate_binding,
+      std::span<const AccumulateInversePushConstants>{request.accumulations, request.accumulation_count}
+    );
   }
 
   [[nodiscard]] std::size_t batch_output_offset(VulkanDftWorkspace& workspace, int batch_index) const noexcept {
@@ -1129,19 +1328,6 @@ private:
     return constants;
   }
 
-  void dispatch_accumulate_inverse_blocks(
-    VulkanDftWorkspace& workspace,
-    int slot,
-    std::span<const AccumulateInversePushConstants> constants
-  ) {
-    accumulate_inverse_->dispatch_many(
-      workspace.fft_real_batch(slot, 1).device,
-      coefficients_->window(),
-      workspace.accumulation(),
-      constants
-    );
-  }
-
   [[nodiscard]] LoadWindowPushConstants make_load_window_constants(
     const DFTKernelContext& context,
     int plane,
@@ -1168,20 +1354,6 @@ private:
       static_cast<std::uint32_t>((context.planes.pad_height[plane] - context.planes.height[plane]) / 2),
       context.sample.divisor
     };
-  }
-
-  void dispatch_load_windows(
-    VulkanDftWorkspace& workspace,
-    int slot,
-    std::span<const LoadWindowPushConstants> constants
-  ) {
-    const auto real = workspace.fft_real_batch(slot, 1);
-    load_window_->dispatch_many(
-      workspace.source_frames(),
-      coefficients_->window(),
-      real.device,
-      constants
-    );
   }
 
   bool write_output_from_accumulation(
@@ -1319,6 +1491,7 @@ private:
   }
 
   fft::VulkanRuntime* runtime_ {nullptr};
+  bool wait_queue_idle_after_submit_ {false};
   std::unique_ptr<VulkanDftCoefficientCache> coefficients_;
   std::unique_ptr<VulkanLoadWindowKernel> load_window_;
   std::unique_ptr<VulkanFrequencyOpsKernel> frequency_ops_;

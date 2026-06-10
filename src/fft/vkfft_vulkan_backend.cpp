@@ -360,7 +360,7 @@ public:
   }
 
   void submit_r2c(R2CBatch batch) const {
-    std::lock_guard lock(context_->submission_mutex());
+    std::lock_guard lock(plan_mutex_);
     zero_buffer();
 
     auto* mapped = static_cast<Real*>(buffer_.map());
@@ -375,7 +375,7 @@ public:
   }
 
   void submit_c2r(C2RBatch batch) const {
-    std::lock_guard lock(context_->submission_mutex());
+    std::lock_guard lock(plan_mutex_);
     zero_buffer();
 
     auto* mapped = static_cast<Complex*>(buffer_.map());
@@ -390,7 +390,6 @@ public:
   }
 
   void submit_r2c_device(R2CBatch batch) const {
-    std::lock_guard lock(context_->submission_mutex());
     const VkBuffer input = vk_buffer(batch.input.device, buffer_size_, "r2c input");
     const VkBuffer output = vk_buffer(batch.output.device, buffer_size_, "r2c output");
     if (input != output) {
@@ -400,13 +399,36 @@ public:
   }
 
   void submit_c2r_device(C2RBatch batch) const {
-    std::lock_guard lock(context_->submission_mutex());
     const VkBuffer input = vk_buffer(batch.input.device, buffer_size_, "c2r input");
     const VkBuffer output = vk_buffer(batch.output.device, buffer_size_, "c2r output");
     if (input != output) {
       throw std::runtime_error("VkFFT Vulkan device c2r currently requires an in-place buffer");
     }
     run(input, true);
+  }
+
+  void record_r2c_device(VkCommandBuffer command_buffer, R2CBatch batch) const {
+    if (command_buffer == VK_NULL_HANDLE) {
+      throw std::runtime_error("VkFFT Vulkan r2c received a null command buffer");
+    }
+    const VkBuffer input = vk_buffer(batch.input.device, buffer_size_, "r2c input");
+    const VkBuffer output = vk_buffer(batch.output.device, buffer_size_, "r2c output");
+    if (input != output) {
+      throw std::runtime_error("VkFFT Vulkan device r2c currently requires an in-place buffer");
+    }
+    record_run(command_buffer, input, false);
+  }
+
+  void record_c2r_device(VkCommandBuffer command_buffer, C2RBatch batch) const {
+    if (command_buffer == VK_NULL_HANDLE) {
+      throw std::runtime_error("VkFFT Vulkan c2r received a null command buffer");
+    }
+    const VkBuffer input = vk_buffer(batch.input.device, buffer_size_, "c2r input");
+    const VkBuffer output = vk_buffer(batch.output.device, buffer_size_, "c2r output");
+    if (input != output) {
+      throw std::runtime_error("VkFFT Vulkan device c2r currently requires an in-place buffer");
+    }
+    record_run(command_buffer, input, true);
   }
 
 private:
@@ -573,6 +595,7 @@ private:
   mutable VkFFTApplication app_ {};
   mutable bool app_initialized_ {false};
   bool wait_queue_idle_after_submit_ {false};
+  mutable std::mutex plan_mutex_;
 };
 
 const VkfftPlan& vkfft_plan(const Plan& plan) noexcept {
@@ -669,6 +692,38 @@ public:
       throw std::runtime_error("VkFFT Vulkan c2r requires matching host or device memory domains");
     }
     return Completion::completed();
+  }
+
+  bool try_record_vulkan_r2c(const Plan& plan, VkCommandBuffer command_buffer, R2CBatch batch) const override {
+    validate_batch_capacity(plan, batch.count);
+    if (batch.count == 0) {
+      return true;
+    }
+    const auto& native = vkfft_plan(plan);
+    if (native.direction() != TransformDirection::r2c) {
+      throw std::runtime_error("VkFFT Vulkan r2c recorded with a non-r2c plan");
+    }
+    if (batch.input.domain != MemoryDomain::device || batch.output.domain != MemoryDomain::device) {
+      return false;
+    }
+    native.record_r2c_device(command_buffer, batch);
+    return true;
+  }
+
+  bool try_record_vulkan_c2r(const Plan& plan, VkCommandBuffer command_buffer, C2RBatch batch) const override {
+    validate_batch_capacity(plan, batch.count);
+    if (batch.count == 0) {
+      return true;
+    }
+    const auto& native = vkfft_plan(plan);
+    if (native.direction() != TransformDirection::c2r) {
+      throw std::runtime_error("VkFFT Vulkan c2r recorded with a non-c2r plan");
+    }
+    if (batch.input.domain != MemoryDomain::device || batch.output.domain != MemoryDomain::device) {
+      return false;
+    }
+    native.record_c2r_device(command_buffer, batch);
+    return true;
   }
 
 private:

@@ -5,11 +5,16 @@
 #include "fft/vkfft_vulkan_buffer.hpp"
 
 #include <limits>
+#include <mutex>
 #include <stdexcept>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace neo_dfttest::vulkan {
 namespace {
+
+constexpr std::uint32_t kDescriptorSetCapacity = 128;
 
 void check_vk(VkResult result, const char* action) {
   if (result != VK_SUCCESS) {
@@ -36,6 +41,50 @@ VkDeviceSize vk_range(fft::DeviceBufferView view) noexcept {
 }
 
 } // namespace
+
+ComputeBinding::ComputeBinding(
+  fft::VulkanRuntime& runtime,
+  VkDescriptorPool descriptor_pool,
+  std::mutex& descriptor_pool_mutex,
+  VkDescriptorSet descriptor_set
+) noexcept
+  : runtime_(&runtime),
+    descriptor_pool_(descriptor_pool),
+    descriptor_pool_mutex_(&descriptor_pool_mutex),
+    descriptor_set_(descriptor_set) {}
+
+ComputeBinding::ComputeBinding(ComputeBinding&& other) noexcept
+  : runtime_(std::exchange(other.runtime_, nullptr)),
+    descriptor_pool_(std::exchange(other.descriptor_pool_, VK_NULL_HANDLE)),
+    descriptor_pool_mutex_(std::exchange(other.descriptor_pool_mutex_, nullptr)),
+    descriptor_set_(std::exchange(other.descriptor_set_, VK_NULL_HANDLE)) {}
+
+ComputeBinding& ComputeBinding::operator=(ComputeBinding&& other) noexcept {
+  if (this != &other) {
+    reset();
+    runtime_ = std::exchange(other.runtime_, nullptr);
+    descriptor_pool_ = std::exchange(other.descriptor_pool_, VK_NULL_HANDLE);
+    descriptor_pool_mutex_ = std::exchange(other.descriptor_pool_mutex_, nullptr);
+    descriptor_set_ = std::exchange(other.descriptor_set_, VK_NULL_HANDLE);
+  }
+  return *this;
+}
+
+ComputeBinding::~ComputeBinding() {
+  reset();
+}
+
+void ComputeBinding::reset() noexcept {
+  if (!runtime_ || descriptor_pool_ == VK_NULL_HANDLE || descriptor_set_ == VK_NULL_HANDLE) {
+    return;
+  }
+  std::lock_guard lock(*descriptor_pool_mutex_);
+  vkFreeDescriptorSets(runtime_->device(), descriptor_pool_, 1, &descriptor_set_);
+  runtime_ = nullptr;
+  descriptor_pool_ = VK_NULL_HANDLE;
+  descriptor_pool_mutex_ = nullptr;
+  descriptor_set_ = VK_NULL_HANDLE;
+}
 
 ComputePipeline::ComputePipeline(
   fft::VulkanRuntime& runtime,
@@ -106,19 +155,14 @@ ComputePipeline::ComputePipeline(
 
   VkDescriptorPoolSize pool_size {};
   pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-  pool_size.descriptorCount = storage_binding_count_;
+  pool_size.descriptorCount = storage_binding_count_ * kDescriptorSetCapacity;
 
   VkDescriptorPoolCreateInfo pool_info {VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-  pool_info.maxSets = 1;
+  pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+  pool_info.maxSets = kDescriptorSetCapacity;
   pool_info.poolSizeCount = 1;
   pool_info.pPoolSizes = &pool_size;
   check_vk(vkCreateDescriptorPool(runtime_->device(), &pool_info, nullptr, &descriptor_pool_), "create Vulkan descriptor pool");
-
-  VkDescriptorSetAllocateInfo allocate_info {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-  allocate_info.descriptorPool = descriptor_pool_;
-  allocate_info.descriptorSetCount = 1;
-  allocate_info.pSetLayouts = &descriptor_set_layout_;
-  check_vk(vkAllocateDescriptorSets(runtime_->device(), &allocate_info, &descriptor_set_), "allocate Vulkan descriptor set");
 }
 
 ComputePipeline::~ComputePipeline() {
@@ -140,6 +184,162 @@ ComputePipeline::~ComputePipeline() {
   if (shader_ != VK_NULL_HANDLE) {
     vkDestroyShaderModule(runtime_->device(), shader_, nullptr);
   }
+}
+
+ComputeBinding ComputePipeline::bind_storage_buffers(
+  std::span<const fft::DeviceBufferView> storage_buffers
+) const {
+  if (storage_buffers.size() != storage_binding_count_) {
+    throw std::runtime_error("Vulkan compute dispatch received the wrong number of storage buffers");
+  }
+
+  std::vector<VkDescriptorBufferInfo> buffer_infos(storage_buffers.size());
+  std::vector<VkWriteDescriptorSet> writes(storage_buffers.size());
+
+  VkDescriptorSet descriptor_set = VK_NULL_HANDLE;
+  VkDescriptorSetAllocateInfo allocate_info {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+  allocate_info.descriptorPool = descriptor_pool_;
+  allocate_info.descriptorSetCount = 1;
+  allocate_info.pSetLayouts = &descriptor_set_layout_;
+  {
+    std::lock_guard lock(descriptor_pool_mutex_);
+    check_vk(vkAllocateDescriptorSets(runtime_->device(), &allocate_info, &descriptor_set), "allocate Vulkan descriptor set");
+  }
+
+  ComputeBinding binding(*runtime_, descriptor_pool_, descriptor_pool_mutex_, descriptor_set);
+
+  for (std::uint32_t index = 0; index < storage_binding_count_; ++index) {
+    buffer_infos[index].buffer = vk_buffer(storage_buffers[index], "compute storage binding");
+    buffer_infos[index].offset = vk_offset(storage_buffers[index].offset_bytes, "compute storage binding");
+    buffer_infos[index].range = vk_range(storage_buffers[index]);
+
+    writes[index].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[index].dstSet = descriptor_set;
+    writes[index].dstBinding = index;
+    writes[index].descriptorCount = 1;
+    writes[index].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writes[index].pBufferInfo = &buffer_infos[index];
+  }
+
+  vkUpdateDescriptorSets(
+    runtime_->device(),
+    static_cast<std::uint32_t>(writes.size()),
+    writes.data(),
+    0,
+    nullptr
+  );
+
+  return binding;
+}
+
+void ComputePipeline::validate_dispatches(std::span<const ComputeDispatch> dispatches) const {
+  for (const ComputeDispatch& dispatch : dispatches) {
+    if (dispatch.push_constant_bytes != push_constant_bytes_) {
+      throw std::runtime_error("Vulkan compute dispatch received the wrong push constant size");
+    }
+    if (push_constant_bytes_ > 0 && dispatch.push_constants == nullptr) {
+      throw std::runtime_error("Vulkan compute dispatch received null push constants");
+    }
+  }
+}
+
+void ComputePipeline::record_dispatch_many(
+  VkCommandBuffer command_buffer,
+  const ComputeBinding& binding,
+  std::span<const ComputeDispatch> dispatches
+) const {
+  if (dispatches.empty()) {
+    return;
+  }
+  if (command_buffer == VK_NULL_HANDLE) {
+    throw std::runtime_error("Vulkan compute dispatch received a null command buffer");
+  }
+  if (binding.runtime_ != runtime_ || binding.descriptor_pool_ != descriptor_pool_ || !binding) {
+    throw std::runtime_error("Vulkan compute dispatch received an invalid descriptor binding");
+  }
+  validate_dispatches(dispatches);
+
+  VkMemoryBarrier before_dispatch {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+  before_dispatch.srcAccessMask =
+    VK_ACCESS_HOST_WRITE_BIT |
+    VK_ACCESS_TRANSFER_WRITE_BIT |
+    VK_ACCESS_SHADER_WRITE_BIT;
+  before_dispatch.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+  vkCmdPipelineBarrier(
+    command_buffer,
+    VK_PIPELINE_STAGE_HOST_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+    0,
+    1,
+    &before_dispatch,
+    0,
+    nullptr,
+    0,
+    nullptr
+  );
+
+  vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
+  vkCmdBindDescriptorSets(
+    command_buffer,
+    VK_PIPELINE_BIND_POINT_COMPUTE,
+    pipeline_layout_,
+    0,
+    1,
+    &binding.descriptor_set_,
+    0,
+    nullptr
+  );
+  for (const ComputeDispatch& dispatch : dispatches) {
+    if (dispatch.push_constant_bytes > 0) {
+      vkCmdPushConstants(
+        command_buffer,
+        pipeline_layout_,
+        VK_SHADER_STAGE_COMPUTE_BIT,
+        0,
+        dispatch.push_constant_bytes,
+        dispatch.push_constants
+      );
+    }
+    vkCmdDispatch(command_buffer, dispatch.groups_x, dispatch.groups_y, dispatch.groups_z);
+    if (dispatch.barrier_after) {
+      VkMemoryBarrier between_dispatches {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+      between_dispatches.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+      between_dispatches.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+      vkCmdPipelineBarrier(
+        command_buffer,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        0,
+        1,
+        &between_dispatches,
+        0,
+        nullptr,
+        0,
+        nullptr
+      );
+    }
+  }
+
+  VkMemoryBarrier after_dispatch {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+  after_dispatch.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+  after_dispatch.dstAccessMask =
+    VK_ACCESS_HOST_READ_BIT |
+    VK_ACCESS_TRANSFER_READ_BIT |
+    VK_ACCESS_TRANSFER_WRITE_BIT |
+    VK_ACCESS_SHADER_READ_BIT |
+    VK_ACCESS_SHADER_WRITE_BIT;
+  vkCmdPipelineBarrier(
+    command_buffer,
+    VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+    VK_PIPELINE_STAGE_HOST_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+    0,
+    1,
+    &after_dispatch,
+    0,
+    nullptr,
+    0,
+    nullptr
+  );
 }
 
 void ComputePipeline::dispatch(
@@ -165,46 +365,19 @@ void ComputePipeline::dispatch_many(
   std::span<const fft::DeviceBufferView> storage_buffers,
   std::span<const ComputeDispatch> dispatches
 ) const {
-  if (storage_buffers.size() != storage_binding_count_) {
-    throw std::runtime_error("Vulkan compute dispatch received the wrong number of storage buffers");
-  }
   if (dispatches.empty()) {
     return;
   }
-  for (const ComputeDispatch& dispatch : dispatches) {
-    if (dispatch.push_constant_bytes != push_constant_bytes_) {
-      throw std::runtime_error("Vulkan compute dispatch received the wrong push constant size");
-    }
-    if (push_constant_bytes_ > 0 && dispatch.push_constants == nullptr) {
-      throw std::runtime_error("Vulkan compute dispatch received null push constants");
-    }
-  }
-
-  std::vector<VkDescriptorBufferInfo> buffer_infos(storage_buffers.size());
-  std::vector<VkWriteDescriptorSet> writes(storage_buffers.size());
-  for (std::uint32_t index = 0; index < storage_binding_count_; ++index) {
-    buffer_infos[index].buffer = vk_buffer(storage_buffers[index], "compute storage binding");
-    buffer_infos[index].offset = vk_offset(storage_buffers[index].offset_bytes, "compute storage binding");
-    buffer_infos[index].range = vk_range(storage_buffers[index]);
-
-    writes[index].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writes[index].dstSet = descriptor_set_;
-    writes[index].dstBinding = index;
-    writes[index].descriptorCount = 1;
-    writes[index].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    writes[index].pBufferInfo = &buffer_infos[index];
-  }
+  auto binding = bind_storage_buffers(storage_buffers);
 
   struct DispatchRequest {
     const ComputePipeline* pipeline;
-    const VkWriteDescriptorSet* writes;
-    std::uint32_t write_count;
+    const ComputeBinding* binding;
     const ComputeDispatch* dispatches;
     std::uint32_t dispatch_count;
   } request {
     this,
-    writes.data(),
-    static_cast<std::uint32_t>(writes.size()),
+    &binding,
     dispatches.data(),
     static_cast<std::uint32_t>(dispatches.size())
   };
@@ -213,96 +386,10 @@ void ComputePipeline::dispatch_many(
     *runtime_,
     [](VkCommandBuffer command_buffer, void* user) {
       const auto& request = *static_cast<DispatchRequest*>(user);
-      const ComputePipeline& pipeline = *request.pipeline;
-      vkUpdateDescriptorSets(
-        pipeline.runtime_->device(),
-        request.write_count,
-        request.writes,
-        0,
-        nullptr
-      );
-
-      VkMemoryBarrier before_dispatch {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
-      before_dispatch.srcAccessMask =
-        VK_ACCESS_HOST_WRITE_BIT |
-        VK_ACCESS_TRANSFER_WRITE_BIT |
-        VK_ACCESS_SHADER_WRITE_BIT;
-      before_dispatch.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-      vkCmdPipelineBarrier(
+      request.pipeline->record_dispatch_many(
         command_buffer,
-        VK_PIPELINE_STAGE_HOST_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-        0,
-        1,
-        &before_dispatch,
-        0,
-        nullptr,
-        0,
-        nullptr
-      );
-
-      vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.pipeline_);
-      vkCmdBindDescriptorSets(
-        command_buffer,
-        VK_PIPELINE_BIND_POINT_COMPUTE,
-        pipeline.pipeline_layout_,
-        0,
-        1,
-        &pipeline.descriptor_set_,
-        0,
-        nullptr
-      );
-      for (std::uint32_t index = 0; index < request.dispatch_count; ++index) {
-        const ComputeDispatch& dispatch = request.dispatches[index];
-        if (dispatch.push_constant_bytes > 0) {
-          vkCmdPushConstants(
-            command_buffer,
-            pipeline.pipeline_layout_,
-            VK_SHADER_STAGE_COMPUTE_BIT,
-            0,
-            dispatch.push_constant_bytes,
-            dispatch.push_constants
-          );
-        }
-        vkCmdDispatch(command_buffer, dispatch.groups_x, dispatch.groups_y, dispatch.groups_z);
-        if (dispatch.barrier_after) {
-          VkMemoryBarrier between_dispatches {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
-          between_dispatches.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-          between_dispatches.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-          vkCmdPipelineBarrier(
-            command_buffer,
-            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-            0,
-            1,
-            &between_dispatches,
-            0,
-            nullptr,
-            0,
-            nullptr
-          );
-        }
-      }
-
-      VkMemoryBarrier after_dispatch {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
-      after_dispatch.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-      after_dispatch.dstAccessMask =
-        VK_ACCESS_HOST_READ_BIT |
-        VK_ACCESS_TRANSFER_READ_BIT |
-        VK_ACCESS_TRANSFER_WRITE_BIT |
-        VK_ACCESS_SHADER_READ_BIT |
-        VK_ACCESS_SHADER_WRITE_BIT;
-      vkCmdPipelineBarrier(
-        command_buffer,
-        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-        VK_PIPELINE_STAGE_HOST_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-        0,
-        1,
-        &after_dispatch,
-        0,
-        nullptr,
-        0,
-        nullptr
+        *request.binding,
+        std::span<const ComputeDispatch>{request.dispatches, request.dispatch_count}
       );
     },
     &request

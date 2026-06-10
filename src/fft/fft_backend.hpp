@@ -196,6 +196,16 @@ public:
 
   virtual Completion submit_r2c(const Plan& plan, R2CBatch batch, SubmitOptions options = {}) const = 0;
   virtual Completion submit_c2r(const Plan& plan, C2RBatch batch, SubmitOptions options = {}) const = 0;
+
+#if defined(NEO_DFTTEST_ENABLE_VKFFT_VULKAN)
+  virtual bool try_record_vulkan_r2c(const Plan&, VkCommandBuffer, R2CBatch) const {
+    return false;
+  }
+
+  virtual bool try_record_vulkan_c2r(const Plan&, VkCommandBuffer, C2RBatch) const {
+    return false;
+  }
+#endif
 };
 
 inline R2CBatch single_r2c_batch(Real* input, Complex* output, std::ptrdiff_t real_stride, std::ptrdiff_t complex_stride) noexcept {
