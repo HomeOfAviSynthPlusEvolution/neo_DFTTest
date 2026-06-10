@@ -179,7 +179,8 @@ VulkanDeviceBuffer make_vulkan_storage_buffer(
 void submit_vulkan_commands(
   VulkanRuntime& runtime,
   void (*record)(VkCommandBuffer command_buffer, void* user),
-  void* user
+  void* user,
+  bool wait_queue_idle_after_submit
 ) {
   if (record == nullptr) {
     throw std::runtime_error("missing Vulkan command recorder");
@@ -209,6 +210,9 @@ void submit_vulkan_commands(
     submit_info.pCommandBuffers = &command_buffer;
     check_vk(vkQueueSubmit(runtime.queue(), 1, &submit_info, fence), "submit Vulkan command buffer");
     check_vk(vkWaitForFences(runtime.device(), 1, &fence, VK_TRUE, std::numeric_limits<std::uint64_t>::max()), "wait for Vulkan fence");
+    if (wait_queue_idle_after_submit) {
+      check_vk(vkQueueWaitIdle(runtime.queue()), "wait for Vulkan queue idle");
+    }
   } catch (...) {
     vkFreeCommandBuffers(runtime.device(), runtime.command_pool(), 1, &command_buffer);
     throw;

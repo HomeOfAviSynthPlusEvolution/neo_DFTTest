@@ -342,7 +342,6 @@ public:
       )) {
     wait_queue_idle_after_submit_ = requires_queue_idle_after_submit(context_->physical_device());
     validate_layout();
-    allocate_command_buffer();
     initialize_app();
   }
 
@@ -353,10 +352,6 @@ public:
     if (app_initialized_) {
       deleteVkFFT(&app_);
       app_initialized_ = false;
-    }
-    if (command_buffer_ != VK_NULL_HANDLE) {
-      vkFreeCommandBuffers(context_->device(), context_->command_pool(), 1, &command_buffer_);
-      command_buffer_ = VK_NULL_HANDLE;
     }
   }
 
@@ -425,14 +420,6 @@ private:
     if (layout_.complex_stride_elements < static_cast<std::ptrdiff_t>(complex_elements_)) {
       throw std::runtime_error("VkFFT complex stride is smaller than one transform");
     }
-  }
-
-  void allocate_command_buffer() {
-    VkCommandBufferAllocateInfo allocate_info {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
-    allocate_info.commandPool = context_->command_pool();
-    allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    allocate_info.commandBufferCount = 1;
-    check_vk(vkAllocateCommandBuffers(context_->device(), &allocate_info, &command_buffer_), "allocate Vulkan command buffer");
   }
 
   void initialize_app() {
@@ -504,18 +491,12 @@ private:
     }
   }
 
-  void run(VkBuffer fft_buffer, bool inverse) const {
-    check_vk(vkResetCommandBuffer(command_buffer_, 0), "reset Vulkan command buffer");
-
-    VkCommandBufferBeginInfo begin_info {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
-    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    check_vk(vkBeginCommandBuffer(command_buffer_, &begin_info), "begin Vulkan command buffer");
-
+  void record_run(VkCommandBuffer command_buffer, VkBuffer fft_buffer, bool inverse) const {
     VkMemoryBarrier before_fft {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
     before_fft.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_SHADER_WRITE_BIT;
     before_fft.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
     vkCmdPipelineBarrier(
-      command_buffer_,
+      command_buffer,
       VK_PIPELINE_STAGE_HOST_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
       0,
@@ -529,7 +510,7 @@ private:
 
     VkFFTLaunchParams launch {};
     VkBuffer buffer_handle = fft_buffer;
-    launch.commandBuffer = &command_buffer_;
+    launch.commandBuffer = &command_buffer;
     launch.buffer = &buffer_handle;
     check_vkfft(VkFFTAppend(&app_, inverse ? 1 : 0, &launch), "execute VkFFT Vulkan plan");
 
@@ -541,7 +522,7 @@ private:
       VK_ACCESS_SHADER_READ_BIT |
       VK_ACCESS_SHADER_WRITE_BIT;
     vkCmdPipelineBarrier(
-      command_buffer_,
+      command_buffer,
       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
       VK_PIPELINE_STAGE_HOST_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
       0,
@@ -552,18 +533,24 @@ private:
       0,
       nullptr
     );
+  }
 
-    check_vk(vkEndCommandBuffer(command_buffer_), "end Vulkan command buffer");
+  void run(VkBuffer fft_buffer, bool inverse) const {
+    struct RunRequest {
+      const VkfftPlan* plan;
+      VkBuffer fft_buffer;
+      bool inverse;
+    } request {this, fft_buffer, inverse};
 
-    VkSubmitInfo submit_info {VK_STRUCTURE_TYPE_SUBMIT_INFO};
-    submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers = &command_buffer_;
-    check_vk(vkQueueSubmit(context_->queue(), 1, &submit_info, context_->fence()), "submit Vulkan command buffer");
-    check_vk(vkWaitForFences(context_->device(), 1, &fence_, VK_TRUE, std::numeric_limits<std::uint64_t>::max()), "wait for Vulkan fence");
-    check_vk(vkResetFences(context_->device(), 1, &fence_), "reset Vulkan fence");
-    if (wait_queue_idle_after_submit_) {
-      check_vk(vkQueueWaitIdle(context_->queue()), "wait for Vulkan CPU queue idle after VkFFT");
-    }
+    submit_vulkan_commands(
+      *context_,
+      [](VkCommandBuffer command_buffer, void* user) {
+        const auto& request = *static_cast<RunRequest*>(user);
+        request.plan->record_run(command_buffer, request.fft_buffer, request.inverse);
+      },
+      &request,
+      wait_queue_idle_after_submit_
+    );
   }
 
   std::shared_ptr<VulkanContext> context_;
@@ -583,7 +570,6 @@ private:
   VkCommandPool command_pool_ {context_->command_pool()};
   VkFence fence_ {context_->fence()};
   VkBuffer buffer_handle_ {buffer_.buffer()};
-  mutable VkCommandBuffer command_buffer_ {VK_NULL_HANDLE};
   mutable VkFFTApplication app_ {};
   mutable bool app_initialized_ {false};
   bool wait_queue_idle_after_submit_ {false};

@@ -72,7 +72,12 @@ private:
   VkMemoryPropertyFlags memory_properties
 );
 
-void submit_vulkan_commands(VulkanRuntime& runtime, void (*record)(VkCommandBuffer command_buffer, void* user), void* user);
+void submit_vulkan_commands(
+  VulkanRuntime& runtime,
+  void (*record)(VkCommandBuffer command_buffer, void* user),
+  void* user,
+  bool wait_queue_idle_after_submit = false
+);
 void clear_vulkan_buffer(VulkanRuntime& runtime, VulkanDeviceBuffer& buffer, std::uint32_t value = 0);
 void clear_vulkan_buffer_view(VulkanRuntime& runtime, DeviceBufferView view, std::uint32_t value = 0);
 void upload_to_vulkan_buffer(VulkanRuntime& runtime, VulkanDeviceBuffer& destination, const void* source, VkDeviceSize bytes);
