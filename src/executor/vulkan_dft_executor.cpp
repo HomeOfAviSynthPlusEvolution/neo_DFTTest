@@ -1,5 +1,6 @@
 #include "executor/dft_executor.hpp"
 
+#include "core.h"
 #include "executor/dft_fft_operation.hpp"
 #include "fft/vkfft_vulkan_buffer.hpp"
 #include "vulkan/vulkan_compute.hpp"
@@ -660,7 +661,8 @@ class VulkanDftExecutor final : public DftExecutor {
 public:
   VulkanDftExecutor(unsigned opt, DFTClipFormat format, fft::VulkanRuntime* runtime)
     : runtime_(runtime),
-      fallback_(create_cpu_dft_executor(opt, format)) {
+      copy_pad_(select_cpu_copy_pad(format)) {
+    (void)opt;
     if (runtime_ == nullptr) {
       throw std::runtime_error("Vulkan DFT executor requires a VkFFT Vulkan runtime");
     }
@@ -677,23 +679,26 @@ public:
       true,
       true,
       true,
-      true
+      false
     };
   }
 
   [[nodiscard]] DftMemoryPlan memory_plan() const noexcept override {
-    return dft_vulkan_memory_plan(true);
+    return dft_vulkan_memory_plan(false);
   }
 
   [[nodiscard]] DFTBatchPolicy make_batch_policy(
     const DFTBlockSettings& block,
     const fft::BackendCapabilities& fft_capabilities
   ) const noexcept override {
-    return fallback_->make_batch_policy(block, fft_capabilities);
+    return make_cpu_dft_batch_policy(block, fft_capabilities);
   }
 
   void copy_pad(DftCopyPadRequest request) override {
-    fallback_->copy_pad(request);
+    if (!copy_pad_) {
+      throw std::runtime_error("Vulkan DFT executor has no host copy-pad processor");
+    }
+    copy_pad_(request.plane, request.source, request.destination, request.context);
   }
 
   void process_frame(DftFrameProcessRequest request) override {
@@ -721,8 +726,7 @@ public:
       throw std::runtime_error("Vulkan DFT executor received an invalid source frame count");
     }
     if (!can_write_vulkan_output(request.workspace.host_view(), request.context)) {
-      process_with_cpu_padding(request);
-      return;
+      throw std::runtime_error("Vulkan DFT executor cannot run random dither without a host RNG");
     }
 
     const std::size_t source_frame_bytes = source_upload_bytes(request.sources[0], request.plane, request.context);
@@ -764,7 +768,7 @@ public:
     if (write_output_from_accumulation(workspace, request.workspace.host_view(), request.destination, request.plane, request.context)) {
       return;
     }
-    fallback_->process_spatial(request);
+    throw std::runtime_error("Vulkan DFT executor could not write spatial output");
   }
 
   void process_temporal(DftProcessTemporalRequest request) override {
@@ -773,7 +777,7 @@ public:
     if (write_output_from_accumulation(workspace, request.workspace.host_view(), request.destination, request.plane, request.context)) {
       return;
     }
-    fallback_->process_temporal(request);
+    throw std::runtime_error("Vulkan DFT executor could not write temporal output");
   }
 
 private:
@@ -796,43 +800,6 @@ private:
       source.data,
       source_bytes
     );
-  }
-
-  void process_with_cpu_padding(DftProcessRequest request) {
-    const int pad_block_size = request.context.planes.pad_block_size[request.plane];
-    const int pad_stride = request.context.planes.pad_stride[request.plane];
-    AlignedBuffer<unsigned char> padded(
-      static_cast<std::size_t>(pad_block_size) * static_cast<std::size_t>(request.source_count)
-    );
-
-    for (int index = 0; index < request.source_count; ++index) {
-      copy_pad(DftCopyPadRequest{
-        request.plane,
-        request.sources[static_cast<std::size_t>(index)],
-        DFTMutablePlaneBytes{padded.data() + pad_block_size * index, pad_stride},
-        request.context
-      });
-    }
-
-    if (request.mode == DftProcessMode::spatial) {
-      fallback_->process_spatial(DftProcessSpatialRequest{
-        request.workspace,
-        request.plane,
-        DFTPlaneBytes{padded.data(), pad_stride},
-        request.destination,
-        request.context
-      });
-      return;
-    }
-
-    fallback_->process_temporal(DftProcessTemporalRequest{
-      request.workspace,
-      request.plane,
-      DFTPlaneBytes{padded.data(), pad_stride},
-      request.destination,
-      request.temporal_position,
-      request.context
-    });
   }
 
   [[nodiscard]] bool can_write_vulkan_output(DFTThreadWorkspaceView host_workspace, const DFTKernelContext& context) const noexcept {
@@ -1256,7 +1223,7 @@ private:
   std::unique_ptr<VulkanFrequencyOpsKernel> frequency_ops_;
   std::unique_ptr<VulkanAccumulateInverseKernel> accumulate_inverse_;
   std::unique_ptr<VulkanWriteOutputKernel> write_output_;
-  std::unique_ptr<DftExecutor> fallback_;
+  DFTCopyPadFunction copy_pad_ {nullptr};
   std::mutex workspaces_mutex_;
   std::mutex coefficients_mutex_;
   std::vector<std::unique_ptr<VulkanDftWorkspace>> workspaces_;
