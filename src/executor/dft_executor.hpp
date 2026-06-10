@@ -1,6 +1,7 @@
 #pragma once
 
 #include "dft_common.h"
+#include "executor/dft_memory_plan.hpp"
 #include "workspace/dft_workspace.hpp"
 
 #include <array>
@@ -76,6 +77,7 @@ public:
   virtual ~DftExecutor() = default;
 
   [[nodiscard]] virtual DftExecutorCapabilities capabilities() const noexcept = 0;
+  [[nodiscard]] virtual DftMemoryPlan memory_plan() const noexcept = 0;
   [[nodiscard]] virtual DFTBatchPolicy make_batch_policy(
     const DFTBlockSettings& block,
     const fft::BackendCapabilities& fft_capabilities

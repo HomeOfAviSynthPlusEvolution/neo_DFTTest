@@ -24,6 +24,10 @@ public:
     };
   }
 
+  [[nodiscard]] DftMemoryPlan memory_plan() const noexcept override {
+    return dft_host_memory_plan();
+  }
+
   [[nodiscard]] DFTBatchPolicy make_batch_policy(
     const DFTBlockSettings& block,
     const fft::BackendCapabilities& fft_capabilities

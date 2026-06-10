@@ -17,6 +17,10 @@ public:
     };
   }
 
+  [[nodiscard]] DftMemoryPlan memory_plan() const noexcept override {
+    return dft_vulkan_memory_plan(true);
+  }
+
   [[nodiscard]] DFTBatchPolicy make_batch_policy(
     const DFTBlockSettings& block,
     const fft::BackendCapabilities& fft_capabilities
