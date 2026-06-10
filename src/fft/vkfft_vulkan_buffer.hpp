@@ -6,10 +6,17 @@
 #include "fft/vkfft_vulkan_runtime.hpp"
 
 #include <cstdint>
+#include <span>
 
 #include <vulkan/vulkan.h>
 
 namespace neo_dfttest::fft {
+
+struct VulkanBufferUpload {
+  DeviceBufferView destination;
+  const void* source {nullptr};
+  VkDeviceSize bytes {0};
+};
 
 class VulkanDeviceBuffer final {
 public:
@@ -70,6 +77,7 @@ void clear_vulkan_buffer(VulkanRuntime& runtime, VulkanDeviceBuffer& buffer, std
 void clear_vulkan_buffer_view(VulkanRuntime& runtime, DeviceBufferView view, std::uint32_t value = 0);
 void upload_to_vulkan_buffer(VulkanRuntime& runtime, VulkanDeviceBuffer& destination, const void* source, VkDeviceSize bytes);
 void upload_to_vulkan_buffer_view(VulkanRuntime& runtime, DeviceBufferView destination, const void* source, VkDeviceSize bytes);
+void upload_to_vulkan_buffer_views(VulkanRuntime& runtime, std::span<const VulkanBufferUpload> uploads);
 void download_from_vulkan_buffer(VulkanRuntime& runtime, VulkanDeviceBuffer& source, void* destination, VkDeviceSize bytes);
 
 } // namespace neo_dfttest::fft

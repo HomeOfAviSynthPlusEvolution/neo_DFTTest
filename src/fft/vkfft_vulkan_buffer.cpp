@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace neo_dfttest::fft {
 namespace {
@@ -257,44 +258,65 @@ void upload_to_vulkan_buffer_view(
   const void* source,
   VkDeviceSize bytes
 ) {
-  const VkDeviceSize destination_range = vk_device_size(destination.size_bytes, "upload to Vulkan buffer");
-  validate_transfer_size(bytes, destination_range, "upload to Vulkan buffer");
-  if (bytes == 0) {
+  const VulkanBufferUpload upload {destination, source, bytes};
+  upload_to_vulkan_buffer_views(runtime, std::span<const VulkanBufferUpload>{&upload, 1});
+}
+
+void upload_to_vulkan_buffer_views(VulkanRuntime& runtime, std::span<const VulkanBufferUpload> uploads) {
+  if (uploads.empty()) {
     return;
   }
-  if (source == nullptr) {
-    throw std::runtime_error("upload to Vulkan buffer received null source");
+
+  std::vector<VulkanDeviceBuffer> staging_buffers;
+  staging_buffers.reserve(uploads.size());
+  for (const VulkanBufferUpload& upload : uploads) {
+    const VkDeviceSize destination_range = vk_device_size(upload.destination.size_bytes, "upload to Vulkan buffer");
+    validate_transfer_size(upload.bytes, destination_range, "upload to Vulkan buffer");
+    if (upload.bytes == 0) {
+      staging_buffers.emplace_back();
+      continue;
+    }
+    if (upload.source == nullptr) {
+      throw std::runtime_error("upload to Vulkan buffer received null source");
+    }
+
+    staging_buffers.emplace_back(
+      runtime,
+      upload.bytes,
+      VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+    );
+    std::memcpy(staging_buffers.back().map(), upload.source, static_cast<std::size_t>(upload.bytes));
+    staging_buffers.back().unmap();
   }
 
-  VulkanDeviceBuffer staging(
-    runtime,
-    bytes,
-    VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-  );
-  std::memcpy(staging.map(), source, static_cast<std::size_t>(bytes));
-  staging.unmap();
-
   struct CopyRequest {
-    VulkanDeviceBuffer* source;
-    DeviceBufferView destination;
-    VkDeviceSize bytes;
-  } request {&staging, destination, bytes};
+    const std::vector<VulkanDeviceBuffer>* staging_buffers;
+    const VulkanBufferUpload* uploads;
+    std::size_t count;
+  } request {&staging_buffers, uploads.data(), uploads.size()};
 
   submit_vulkan_commands(
     runtime,
     [](VkCommandBuffer command_buffer, void* user) {
       const auto& copy = *static_cast<CopyRequest*>(user);
-      VkBufferCopy region {};
-      region.dstOffset = vk_device_size(copy.destination.offset_bytes, "upload to Vulkan buffer");
-      region.size = copy.bytes;
-      vkCmdCopyBuffer(
-        command_buffer,
-        copy.source->buffer(),
-        vk_view_buffer(copy.destination, "upload to Vulkan buffer"),
-        1,
-        &region
-      );
+      for (std::size_t index = 0; index < copy.count; ++index) {
+        const VulkanBufferUpload& upload = copy.uploads[index];
+        if (upload.bytes == 0) {
+          continue;
+        }
+
+        VkBufferCopy region {};
+        region.dstOffset = vk_device_size(upload.destination.offset_bytes, "upload to Vulkan buffer");
+        region.size = upload.bytes;
+        vkCmdCopyBuffer(
+          command_buffer,
+          (*copy.staging_buffers)[index].buffer(),
+          vk_view_buffer(upload.destination, "upload to Vulkan buffer"),
+          1,
+          &region
+        );
+      }
     },
     &request
   );

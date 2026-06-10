@@ -783,9 +783,8 @@ private:
     );
   }
 
-  void upload_source_frame(
+  [[nodiscard]] fft::DeviceBufferView source_frame_view(
     VulkanDftWorkspace& workspace,
-    DFTPlaneBytes source,
     std::size_t destination_offset,
     std::size_t source_bytes
   ) {
@@ -795,12 +794,7 @@ private:
     }
     destination.offset_bytes += destination_offset;
     destination.size_bytes = source_bytes;
-    fft::upload_to_vulkan_buffer_view(
-      *runtime_,
-      destination,
-      source.data,
-      static_cast<VkDeviceSize>(source_bytes)
-    );
+    return destination;
   }
 
   void process_temporal_sources(DftProcessRequest request) {
@@ -808,19 +802,21 @@ private:
     const std::size_t source_frame_bytes = source_upload_bytes(request.sources[0], request.plane, request.context);
     const std::size_t source_frame_storage = source_frame_storage_bytes(request.sources[0], request.plane, request.context);
 
+    std::vector<fft::VulkanBufferUpload> uploads;
+    uploads.reserve(static_cast<std::size_t>(request.source_count));
     for (int index = 0; index < request.source_count; ++index) {
       const DFTPlaneBytes source = request.sources[static_cast<std::size_t>(index)];
       const std::size_t bytes = source_upload_bytes(source, request.plane, request.context);
       if (bytes != source_frame_bytes) {
         throw std::runtime_error("Vulkan DFT executor received inconsistent source frame strides");
       }
-      upload_source_frame(
-        workspace,
-        source,
-        source_frame_storage * static_cast<std::size_t>(index),
-        bytes
-      );
+      uploads.push_back(fft::VulkanBufferUpload{
+        source_frame_view(workspace, source_frame_storage * static_cast<std::size_t>(index), bytes),
+        source.data,
+        static_cast<VkDeviceSize>(bytes)
+      });
     }
+    fft::upload_to_vulkan_buffer_views(*runtime_, uploads);
 
     stage_temporal_forward_batches(
       workspace,
