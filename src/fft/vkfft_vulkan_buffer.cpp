@@ -2,6 +2,9 @@
 
 #if defined(NEO_DFTTEST_ENABLE_VKFFT_VULKAN)
 
+#include <cstring>
+#include <limits>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -12,6 +15,12 @@ namespace {
 void check_vk(VkResult result, const char* action) {
   if (result != VK_SUCCESS) {
     throw std::runtime_error(std::string(action) + ": Vulkan error " + std::to_string(static_cast<int>(result)));
+  }
+}
+
+void validate_transfer_size(VkDeviceSize size, VkDeviceSize capacity, const char* action) {
+  if (size > capacity) {
+    throw std::runtime_error(std::string(action) + ": Vulkan transfer exceeds buffer size");
   }
 }
 
@@ -131,6 +140,146 @@ VulkanDeviceBuffer make_vulkan_storage_buffer(
     VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
     VK_BUFFER_USAGE_TRANSFER_DST_BIT;
   return VulkanDeviceBuffer(runtime, size, usage, memory_properties);
+}
+
+void submit_vulkan_commands(
+  VulkanRuntime& runtime,
+  void (*record)(VkCommandBuffer command_buffer, void* user),
+  void* user
+) {
+  if (record == nullptr) {
+    throw std::runtime_error("missing Vulkan command recorder");
+  }
+
+  std::lock_guard lock(runtime.submission_mutex());
+
+  VkCommandBuffer command_buffer = VK_NULL_HANDLE;
+  VkCommandBufferAllocateInfo allocate_info {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+  allocate_info.commandPool = runtime.command_pool();
+  allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+  allocate_info.commandBufferCount = 1;
+  check_vk(vkAllocateCommandBuffers(runtime.device(), &allocate_info, &command_buffer), "allocate Vulkan command buffer");
+
+  try {
+    VkFence fence = runtime.fence();
+    check_vk(vkResetFences(runtime.device(), 1, &fence), "reset Vulkan fence");
+
+    VkCommandBufferBeginInfo begin_info {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    check_vk(vkBeginCommandBuffer(command_buffer, &begin_info), "begin Vulkan command buffer");
+    record(command_buffer, user);
+    check_vk(vkEndCommandBuffer(command_buffer), "end Vulkan command buffer");
+
+    VkSubmitInfo submit_info {VK_STRUCTURE_TYPE_SUBMIT_INFO};
+    submit_info.commandBufferCount = 1;
+    submit_info.pCommandBuffers = &command_buffer;
+    check_vk(vkQueueSubmit(runtime.queue(), 1, &submit_info, fence), "submit Vulkan command buffer");
+    check_vk(vkWaitForFences(runtime.device(), 1, &fence, VK_TRUE, std::numeric_limits<std::uint64_t>::max()), "wait for Vulkan fence");
+  } catch (...) {
+    vkFreeCommandBuffers(runtime.device(), runtime.command_pool(), 1, &command_buffer);
+    throw;
+  }
+
+  vkFreeCommandBuffers(runtime.device(), runtime.command_pool(), 1, &command_buffer);
+}
+
+void clear_vulkan_buffer(VulkanRuntime& runtime, VulkanDeviceBuffer& buffer, std::uint32_t value) {
+  struct ClearRequest {
+    VulkanDeviceBuffer* buffer;
+    std::uint32_t value;
+  } request {&buffer, value};
+
+  submit_vulkan_commands(
+    runtime,
+    [](VkCommandBuffer command_buffer, void* user) {
+      const auto& clear = *static_cast<ClearRequest*>(user);
+      vkCmdFillBuffer(command_buffer, clear.buffer->buffer(), 0, VK_WHOLE_SIZE, clear.value);
+    },
+    &request
+  );
+}
+
+void upload_to_vulkan_buffer(
+  VulkanRuntime& runtime,
+  VulkanDeviceBuffer& destination,
+  const void* source,
+  VkDeviceSize bytes
+) {
+  validate_transfer_size(bytes, destination.size(), "upload to Vulkan buffer");
+  if (bytes == 0) {
+    return;
+  }
+  if (source == nullptr) {
+    throw std::runtime_error("upload to Vulkan buffer received null source");
+  }
+
+  VulkanDeviceBuffer staging(
+    runtime,
+    bytes,
+    VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+  );
+  std::memcpy(staging.map(), source, static_cast<std::size_t>(bytes));
+  staging.unmap();
+
+  struct CopyRequest {
+    VulkanDeviceBuffer* source;
+    VulkanDeviceBuffer* destination;
+    VkDeviceSize bytes;
+  } request {&staging, &destination, bytes};
+
+  submit_vulkan_commands(
+    runtime,
+    [](VkCommandBuffer command_buffer, void* user) {
+      const auto& copy = *static_cast<CopyRequest*>(user);
+      VkBufferCopy region {};
+      region.size = copy.bytes;
+      vkCmdCopyBuffer(command_buffer, copy.source->buffer(), copy.destination->buffer(), 1, &region);
+    },
+    &request
+  );
+}
+
+void download_from_vulkan_buffer(
+  VulkanRuntime& runtime,
+  VulkanDeviceBuffer& source,
+  void* destination,
+  VkDeviceSize bytes
+) {
+  validate_transfer_size(bytes, source.size(), "download from Vulkan buffer");
+  if (bytes == 0) {
+    return;
+  }
+  if (destination == nullptr) {
+    throw std::runtime_error("download from Vulkan buffer received null destination");
+  }
+
+  VulkanDeviceBuffer staging(
+    runtime,
+    bytes,
+    VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+  );
+
+  struct CopyRequest {
+    VulkanDeviceBuffer* source;
+    VulkanDeviceBuffer* destination;
+    VkDeviceSize bytes;
+  } request {&source, &staging, bytes};
+
+  submit_vulkan_commands(
+    runtime,
+    [](VkCommandBuffer command_buffer, void* user) {
+      const auto& copy = *static_cast<CopyRequest*>(user);
+      VkBufferCopy region {};
+      region.size = copy.bytes;
+      vkCmdCopyBuffer(command_buffer, copy.source->buffer(), copy.destination->buffer(), 1, &region);
+    },
+    &request
+  );
+
+  std::memcpy(destination, staging.map(), static_cast<std::size_t>(bytes));
+  staging.unmap();
 }
 
 } // namespace neo_dfttest::fft

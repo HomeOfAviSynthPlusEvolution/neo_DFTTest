@@ -84,6 +84,15 @@ struct VulkanDftWorkspaceShape {
   }
 };
 
+struct VulkanDftCoefficientShape {
+  int block_volume {0};
+  int coefficient_count {0};
+
+  [[nodiscard]] bool operator==(const VulkanDftCoefficientShape& other) const noexcept {
+    return block_volume == other.block_volume && coefficient_count == other.coefficient_count;
+  }
+};
+
 [[nodiscard]] VulkanDftWorkspaceShape make_workspace_shape(const DFTKernelContext& context) {
   const int batch_capacity = dft_fft_batch_capacity(context.batch_policy);
   const int scratch_slots = dft_fft_scratch_slots(context.batch_policy);
@@ -94,6 +103,13 @@ struct VulkanDftWorkspaceShape {
     scratch_slots,
     max_padded_frame_bytes(context),
     max_accumulation_bytes(context)
+  };
+}
+
+[[nodiscard]] VulkanDftCoefficientShape make_coefficient_shape(const DFTKernelContext& context) noexcept {
+  return VulkanDftCoefficientShape{
+    context.derived.block_volume,
+    context.derived.coefficient_count
   };
 }
 
@@ -129,6 +145,11 @@ public:
       )
     );
     accumulation_ = make_workspace_buffer(*runtime_, next.accumulation_bytes);
+
+    fft::clear_vulkan_buffer(*runtime_, padded_frame_);
+    fft::clear_vulkan_buffer(*runtime_, fft_storage_);
+    fft::clear_vulkan_buffer(*runtime_, removed_mean_);
+    fft::clear_vulkan_buffer(*runtime_, accumulation_);
 
     shape_ = next;
     ready_ = true;
@@ -190,6 +211,106 @@ private:
   fft::VulkanDeviceBuffer accumulation_;
 };
 
+class VulkanDftCoefficientCache final {
+public:
+  explicit VulkanDftCoefficientCache(fft::VulkanRuntime& runtime) noexcept
+    : runtime_(&runtime) {}
+
+  VulkanDftCoefficientCache(const VulkanDftCoefficientCache&) = delete;
+  VulkanDftCoefficientCache& operator=(const VulkanDftCoefficientCache&) = delete;
+
+  void ensure(const DFTKernelContext& context) {
+    const VulkanDftCoefficientShape next = make_coefficient_shape(context);
+    if (ready_ && next == shape_) {
+      return;
+    }
+
+    window_ = allocate_and_upload(
+      context.coefficients.window.data,
+      context.coefficients.window.size,
+      sizeof(float)
+    );
+    sigmas_ = allocate_and_upload(
+      context.coefficients.sigmas.data,
+      context.coefficients.sigmas.size,
+      sizeof(float)
+    );
+    sigmas2_ = allocate_and_upload(
+      context.coefficients.sigmas2.data,
+      context.coefficients.sigmas2.size,
+      sizeof(float)
+    );
+    pmins_ = allocate_and_upload(
+      context.coefficients.pmins.data,
+      context.coefficients.pmins.size,
+      sizeof(float)
+    );
+    pmaxs_ = allocate_and_upload(
+      context.coefficients.pmaxs.data,
+      context.coefficients.pmaxs.size,
+      sizeof(float)
+    );
+    window_dft_ = allocate_and_upload(
+      context.coefficients.window_dft.data,
+      context.coefficients.window_dft.size,
+      sizeof(fft::Complex)
+    );
+
+    shape_ = next;
+    ready_ = true;
+  }
+
+  [[nodiscard]] fft::DeviceBufferView window() const noexcept {
+    return window_.view();
+  }
+
+  [[nodiscard]] fft::DeviceBufferView sigmas() const noexcept {
+    return sigmas_.view();
+  }
+
+  [[nodiscard]] fft::DeviceBufferView sigmas2() const noexcept {
+    return sigmas2_.view();
+  }
+
+  [[nodiscard]] fft::DeviceBufferView pmins() const noexcept {
+    return pmins_.view();
+  }
+
+  [[nodiscard]] fft::DeviceBufferView pmaxs() const noexcept {
+    return pmaxs_.view();
+  }
+
+  [[nodiscard]] fft::DeviceBufferView window_dft() const noexcept {
+    return window_dft_.view();
+  }
+
+private:
+  [[nodiscard]] fft::VulkanDeviceBuffer allocate_and_upload(
+    const void* source,
+    int count,
+    std::size_t element_size
+  ) const {
+    const VkDeviceSize bytes = checked_bytes(static_cast<std::size_t>(std::max(count, 0)), element_size, "coefficient table");
+    auto buffer = make_workspace_buffer(*runtime_, bytes);
+    if (count > 0) {
+      fft::upload_to_vulkan_buffer(*runtime_, buffer, source, bytes);
+    } else {
+      fft::clear_vulkan_buffer(*runtime_, buffer);
+    }
+    return buffer;
+  }
+
+  fft::VulkanRuntime* runtime_ {nullptr};
+  VulkanDftCoefficientShape shape_;
+  bool ready_ {false};
+  fft::VulkanDeviceBuffer window_;
+  fft::VulkanDeviceBuffer sigmas_;
+  fft::VulkanDeviceBuffer sigmas2_;
+  fft::VulkanDeviceBuffer pmins_;
+  fft::VulkanDeviceBuffer pmaxs_;
+  fft::VulkanDeviceBuffer window_dft_;
+};
+
 } // namespace
 
 class VulkanDftExecutor final : public DftExecutor {
@@ -200,6 +321,7 @@ public:
     if (runtime_ == nullptr) {
       throw std::runtime_error("Vulkan DFT executor requires a VkFFT Vulkan runtime");
     }
+    coefficients_ = std::make_unique<VulkanDftCoefficientCache>(*runtime_);
   }
 
   [[nodiscard]] DftExecutorCapabilities capabilities() const noexcept override {
@@ -250,6 +372,12 @@ public:
 private:
   void prepare_workspace(DftWorkspaceLease lease, const DFTKernelContext& context) {
     workspace_for_slot(lease.slot_id).ensure(context);
+    prepare_coefficients(context);
+  }
+
+  void prepare_coefficients(const DFTKernelContext& context) {
+    std::lock_guard lock(coefficients_mutex_);
+    coefficients_->ensure(context);
   }
 
   VulkanDftWorkspace& workspace_for_slot(unsigned int slot_id) {
@@ -266,8 +394,10 @@ private:
   }
 
   fft::VulkanRuntime* runtime_ {nullptr};
+  std::unique_ptr<VulkanDftCoefficientCache> coefficients_;
   std::unique_ptr<DftExecutor> fallback_;
   std::mutex workspaces_mutex_;
+  std::mutex coefficients_mutex_;
   std::vector<std::unique_ptr<VulkanDftWorkspace>> workspaces_;
 };
 
