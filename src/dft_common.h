@@ -260,13 +260,14 @@ struct DFTMutableRealBatchView {
     int stride_elements {0};
     int count {0};
     neo_dfttest::fft::MemoryDomain domain {neo_dfttest::fft::MemoryDomain::host};
+    neo_dfttest::fft::DeviceBufferView device;
 
     [[nodiscard]] float* block(const int index) const noexcept {
         return dft_real_batch_data(data, stride_elements, index);
     }
 
     [[nodiscard]] neo_dfttest::fft::RealBatchView fft_view() const noexcept {
-        return neo_dfttest::fft::RealBatchView{data, stride_elements, domain};
+        return neo_dfttest::fft::RealBatchView{data, stride_elements, domain, device};
     }
 };
 
@@ -275,18 +276,19 @@ struct DFTMutableComplexBatchView {
     int stride_elements {0};
     int count {0};
     neo_dfttest::fft::MemoryDomain domain {neo_dfttest::fft::MemoryDomain::host};
+    neo_dfttest::fft::DeviceBufferView device;
 
     [[nodiscard]] neo_dfttest::fft::Complex* block(const int index) const noexcept {
         return dft_complex_batch_data(data, stride_elements, index);
     }
 
     [[nodiscard]] neo_dfttest::fft::ComplexBatchView fft_view() const noexcept {
-        return neo_dfttest::fft::ComplexBatchView{data, stride_elements, domain};
+        return neo_dfttest::fft::ComplexBatchView{data, stride_elements, domain, device};
     }
 };
 
 inline DFTMutableRealBatchView dft_host_real_batch_view(float* data, const int stride, const int count) noexcept {
-    return DFTMutableRealBatchView{data, stride, count, neo_dfttest::fft::MemoryDomain::host};
+    return DFTMutableRealBatchView{data, stride, count, neo_dfttest::fft::MemoryDomain::host, {}};
 }
 
 inline DFTMutableComplexBatchView dft_host_complex_batch_view(
@@ -294,7 +296,23 @@ inline DFTMutableComplexBatchView dft_host_complex_batch_view(
     const int stride,
     const int count
 ) noexcept {
-    return DFTMutableComplexBatchView{data, stride, count, neo_dfttest::fft::MemoryDomain::host};
+    return DFTMutableComplexBatchView{data, stride, count, neo_dfttest::fft::MemoryDomain::host, {}};
+}
+
+inline DFTMutableRealBatchView dft_device_real_batch_view(
+    neo_dfttest::fft::DeviceBufferView device,
+    const int stride,
+    const int count
+) noexcept {
+    return DFTMutableRealBatchView{nullptr, stride, count, neo_dfttest::fft::MemoryDomain::device, device};
+}
+
+inline DFTMutableComplexBatchView dft_device_complex_batch_view(
+    neo_dfttest::fft::DeviceBufferView device,
+    const int stride,
+    const int count
+) noexcept {
+    return DFTMutableComplexBatchView{nullptr, stride, count, neo_dfttest::fft::MemoryDomain::device, device};
 }
 
 struct DFTCoefficientTables {

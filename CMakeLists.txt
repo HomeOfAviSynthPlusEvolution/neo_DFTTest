@@ -24,6 +24,8 @@ add_library(neo-dfttest SHARED
   src/fft/fft_backend.hpp
   src/fft/fftw_backend.cpp
   src/fft/pocketfft_backend.cpp
+  src/fft/vkfft_vulkan_buffer.hpp
+  src/fft/vkfft_vulkan_runtime.hpp
   src/engine/pixel_plane.hpp
   src/fftwlite.h
   src/memory/aligned_buffer.hpp
@@ -65,6 +67,7 @@ if(NEO_DFTTEST_ENABLE_VKFFT_VULKAN)
 
   target_sources(neo-dfttest PRIVATE
     src/executor/vulkan_dft_executor.cpp
+    src/fft/vkfft_vulkan_buffer.cpp
     src/fft/vkfft_vulkan_backend.cpp
   )
   target_include_directories(neo-dfttest PRIVATE

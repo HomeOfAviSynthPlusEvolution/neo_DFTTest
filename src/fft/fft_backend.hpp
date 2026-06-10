@@ -7,6 +7,10 @@
 #include <type_traits>
 #include <utility>
 
+#if defined(NEO_DFTTEST_ENABLE_VKFFT_VULKAN)
+#include "fft/vkfft_vulkan_runtime.hpp"
+#endif
+
 namespace neo_dfttest::fft {
 
 using Real = float;
@@ -63,16 +67,24 @@ struct BackendCapabilities {
   int max_batch_size {1};
 };
 
+struct DeviceBufferView {
+  void* handle {nullptr};
+  std::size_t offset_bytes {0};
+  std::size_t size_bytes {0};
+};
+
 struct RealBatchView {
   Real* data {nullptr};
   std::ptrdiff_t stride_elements {0};
   MemoryDomain domain {MemoryDomain::host};
+  DeviceBufferView device;
 };
 
 struct ComplexBatchView {
   Complex* data {nullptr};
   std::ptrdiff_t stride_elements {0};
   MemoryDomain domain {MemoryDomain::host};
+  DeviceBufferView device;
 };
 
 struct R2CBatch {
@@ -167,6 +179,11 @@ public:
   virtual bool has_threading() const noexcept = 0;
   virtual void set_thread_count(int nthreads) = 0;
   virtual BackendCapabilities capabilities() const noexcept = 0;
+#if defined(NEO_DFTTEST_ENABLE_VKFFT_VULKAN)
+  virtual VulkanRuntime* vulkan_runtime() noexcept {
+    return nullptr;
+  }
+#endif
 
   virtual Plan make_plan(
     TransformDirection direction,

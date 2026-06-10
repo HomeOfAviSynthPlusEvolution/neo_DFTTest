@@ -92,7 +92,11 @@ public:
 
 std::unique_ptr<DftExecutor> create_cpu_dft_executor(unsigned opt, DFTClipFormat format);
 #if defined(NEO_DFTTEST_ENABLE_VKFFT_VULKAN)
-std::unique_ptr<DftExecutor> create_vulkan_dft_executor(unsigned opt, DFTClipFormat format);
+std::unique_ptr<DftExecutor> create_vulkan_dft_executor(
+  unsigned opt,
+  DFTClipFormat format,
+  fft::VulkanRuntime* runtime
+);
 #endif
 
 } // namespace neo_dfttest

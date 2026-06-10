@@ -1,4 +1,6 @@
 #include "fft/fft_backend.hpp"
+#include "fft/vkfft_vulkan_buffer.hpp"
+#include "fft/vkfft_vulkan_runtime.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -41,17 +43,28 @@ void validate_batch_capacity(const Plan& plan, int count) {
   }
 }
 
-void validate_host_view(MemoryDomain domain) {
-  if (domain != MemoryDomain::host) {
-    throw std::runtime_error("VkFFT Vulkan backend currently supports host batch views only");
-  }
-}
-
 std::size_t checked_extent(int extent) {
   if (extent <= 0) {
     throw std::runtime_error("invalid VkFFT shape extent");
   }
   return static_cast<std::size_t>(extent);
+}
+
+VkBuffer vk_buffer(DeviceBufferView view, VkDeviceSize required_size, const char* name) {
+  if (view.handle == nullptr) {
+    throw std::runtime_error(std::string("missing Vulkan device buffer for ") + name);
+  }
+  if (view.size_bytes != 0 && view.size_bytes < required_size) {
+    throw std::runtime_error(std::string("Vulkan device buffer is too small for ") + name);
+  }
+  return reinterpret_cast<VkBuffer>(view.handle);
+}
+
+pfUINT vkfft_buffer_offset(DeviceBufferView view, const char* name) {
+  if (view.offset_bytes > std::numeric_limits<pfUINT>::max()) {
+    throw std::runtime_error(std::string("Vulkan device buffer offset is too large for ") + name);
+  }
+  return static_cast<pfUINT>(view.offset_bytes);
 }
 
 std::size_t real_transform_elements(TransformShape shape) {
@@ -111,7 +124,7 @@ public:
   }
 };
 
-class VulkanContext final {
+class VulkanContext final : public VulkanRuntime {
 public:
   VulkanContext() {
     create_instance();
@@ -144,31 +157,31 @@ public:
     return instance_;
   }
 
-  [[nodiscard]] VkPhysicalDevice physical_device() const noexcept {
+  [[nodiscard]] VkPhysicalDevice physical_device() const noexcept override {
     return physical_device_;
   }
 
-  [[nodiscard]] VkDevice device() const noexcept {
+  [[nodiscard]] VkDevice device() const noexcept override {
     return device_;
   }
 
-  [[nodiscard]] VkQueue queue() const noexcept {
+  [[nodiscard]] VkQueue queue() const noexcept override {
     return queue_;
   }
 
-  [[nodiscard]] VkCommandPool command_pool() const noexcept {
+  [[nodiscard]] VkCommandPool command_pool() const noexcept override {
     return command_pool_;
   }
 
-  [[nodiscard]] VkFence fence() const noexcept {
+  [[nodiscard]] VkFence fence() const noexcept override {
     return fence_;
   }
 
-  [[nodiscard]] std::uint32_t queue_family_index() const noexcept {
+  [[nodiscard]] std::uint32_t queue_family_index() const noexcept override {
     return queue_family_index_;
   }
 
-  [[nodiscard]] std::uint32_t find_memory_type(std::uint32_t type_bits, VkMemoryPropertyFlags properties, VkDeviceSize size) const {
+  [[nodiscard]] std::uint32_t find_memory_type(std::uint32_t type_bits, VkMemoryPropertyFlags properties, VkDeviceSize size) const override {
     VkPhysicalDeviceMemoryProperties memory_properties {};
     vkGetPhysicalDeviceMemoryProperties(physical_device_, &memory_properties);
 
@@ -182,6 +195,10 @@ public:
     }
 
     throw std::runtime_error("failed to find a compatible Vulkan memory type");
+  }
+
+  [[nodiscard]] std::mutex& submission_mutex() const noexcept override {
+    return mutex;
   }
 
   mutable std::mutex mutex;
@@ -303,109 +320,6 @@ private:
   std::uint32_t queue_family_index_ {0};
 };
 
-class VulkanBuffer final {
-public:
-  VulkanBuffer() = default;
-  VulkanBuffer(std::shared_ptr<VulkanContext> context, VkDeviceSize size)
-    : context_(std::move(context)), size_(size) {
-    if (!context_ || size_ == 0) {
-      throw std::runtime_error("invalid Vulkan buffer allocation");
-    }
-
-    VkBufferCreateInfo buffer_info {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-    buffer_info.size = size_;
-    buffer_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-    buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    buffer_info.queueFamilyIndexCount = 1;
-    const std::uint32_t queue_family = context_->queue_family_index();
-    buffer_info.pQueueFamilyIndices = &queue_family;
-    check_vk(vkCreateBuffer(context_->device(), &buffer_info, nullptr, &buffer_), "create Vulkan buffer");
-
-    VkMemoryRequirements requirements {};
-    vkGetBufferMemoryRequirements(context_->device(), buffer_, &requirements);
-
-    VkMemoryAllocateInfo allocate_info {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
-    allocate_info.allocationSize = requirements.size;
-    allocate_info.memoryTypeIndex = context_->find_memory_type(
-      requirements.memoryTypeBits,
-      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-      requirements.size
-    );
-    check_vk(vkAllocateMemory(context_->device(), &allocate_info, nullptr, &memory_), "allocate Vulkan buffer memory");
-    check_vk(vkBindBufferMemory(context_->device(), buffer_, memory_, 0), "bind Vulkan buffer memory");
-  }
-
-  VulkanBuffer(const VulkanBuffer&) = delete;
-  VulkanBuffer& operator=(const VulkanBuffer&) = delete;
-
-  VulkanBuffer(VulkanBuffer&& other) noexcept
-    : context_(std::move(other.context_)),
-      buffer_(other.buffer_),
-      memory_(other.memory_),
-      size_(other.size_) {
-    other.buffer_ = VK_NULL_HANDLE;
-    other.memory_ = VK_NULL_HANDLE;
-    other.size_ = 0;
-  }
-
-  VulkanBuffer& operator=(VulkanBuffer&& other) noexcept {
-    if (this != &other) {
-      reset();
-      context_ = std::move(other.context_);
-      buffer_ = other.buffer_;
-      memory_ = other.memory_;
-      size_ = other.size_;
-      other.buffer_ = VK_NULL_HANDLE;
-      other.memory_ = VK_NULL_HANDLE;
-      other.size_ = 0;
-    }
-    return *this;
-  }
-
-  ~VulkanBuffer() {
-    reset();
-  }
-
-  [[nodiscard]] VkBuffer buffer() const noexcept {
-    return buffer_;
-  }
-
-  [[nodiscard]] VkDeviceSize size() const noexcept {
-    return size_;
-  }
-
-  [[nodiscard]] void* map() const {
-    void* data = nullptr;
-    check_vk(vkMapMemory(context_->device(), memory_, 0, size_, 0, &data), "map Vulkan buffer memory");
-    return data;
-  }
-
-  void unmap() const noexcept {
-    vkUnmapMemory(context_->device(), memory_);
-  }
-
-private:
-  void reset() noexcept {
-    if (!context_) {
-      return;
-    }
-    if (buffer_ != VK_NULL_HANDLE) {
-      vkDestroyBuffer(context_->device(), buffer_, nullptr);
-      buffer_ = VK_NULL_HANDLE;
-    }
-    if (memory_ != VK_NULL_HANDLE) {
-      vkFreeMemory(context_->device(), memory_, nullptr);
-      memory_ = VK_NULL_HANDLE;
-    }
-    size_ = 0;
-  }
-
-  std::shared_ptr<VulkanContext> context_;
-  VkBuffer buffer_ {VK_NULL_HANDLE};
-  VkDeviceMemory memory_ {VK_NULL_HANDLE};
-  VkDeviceSize size_ {0};
-};
-
 class VkfftPlan final : public Plan::State {
 public:
   VkfftPlan(std::shared_ptr<VulkanContext> context, TransformDirection direction, TransformShape shape, BatchLayout layout)
@@ -419,7 +333,11 @@ public:
       x_extent_(checked_extent(shape.extents[static_cast<std::size_t>(shape.rank - 1)])),
       row_count_(real_elements_ / x_extent_),
       buffer_size_(batch_storage_elements(layout.max_batch, padded_real_elements_) * sizeof(Real)),
-      buffer_(context_, buffer_size_) {
+      buffer_(make_vulkan_storage_buffer(
+        *context_,
+        buffer_size_,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+      )) {
     validate_layout();
     allocate_command_buffer();
     initialize_app();
@@ -451,7 +369,7 @@ public:
     copy_real_input_to_padded_buffer(mapped, batch);
     buffer_.unmap();
 
-    run(false);
+    run(buffer_.buffer(), 0, false);
 
     const auto* output = static_cast<const Complex*>(buffer_.map());
     copy_complex_output_from_buffer(output, batch);
@@ -466,11 +384,41 @@ public:
     copy_complex_input_to_buffer(mapped, batch);
     buffer_.unmap();
 
-    run(true);
+    run(buffer_.buffer(), 0, true);
 
     const auto* output = static_cast<const Real*>(buffer_.map());
     copy_real_output_from_padded_buffer(output, batch);
     buffer_.unmap();
+  }
+
+  void submit_r2c_device(R2CBatch batch) const {
+    std::lock_guard lock(context_->mutex);
+    const VkBuffer input = vk_buffer(batch.input.device, buffer_size_, "r2c input");
+    const VkBuffer output = vk_buffer(batch.output.device, buffer_size_, "r2c output");
+    if (input != output) {
+      throw std::runtime_error("VkFFT Vulkan device r2c currently requires an in-place buffer");
+    }
+    const pfUINT input_offset = vkfft_buffer_offset(batch.input.device, "r2c input");
+    const pfUINT output_offset = vkfft_buffer_offset(batch.output.device, "r2c output");
+    if (input_offset != output_offset) {
+      throw std::runtime_error("VkFFT Vulkan device r2c currently requires matching in-place buffer offsets");
+    }
+    run(input, input_offset, false);
+  }
+
+  void submit_c2r_device(C2RBatch batch) const {
+    std::lock_guard lock(context_->mutex);
+    const VkBuffer input = vk_buffer(batch.input.device, buffer_size_, "c2r input");
+    const VkBuffer output = vk_buffer(batch.output.device, buffer_size_, "c2r output");
+    if (input != output) {
+      throw std::runtime_error("VkFFT Vulkan device c2r currently requires an in-place buffer");
+    }
+    const pfUINT input_offset = vkfft_buffer_offset(batch.input.device, "c2r input");
+    const pfUINT output_offset = vkfft_buffer_offset(batch.output.device, "c2r output");
+    if (input_offset != output_offset) {
+      throw std::runtime_error("VkFFT Vulkan device c2r currently requires matching in-place buffer offsets");
+    }
+    run(input, input_offset, true);
   }
 
 private:
@@ -514,6 +462,7 @@ private:
     configuration.numberBatches = static_cast<pfUINT>(layout_.max_batch);
     configuration.disableSetLocale = 1;
     configuration.disableReorderFourStep = 1;
+    configuration.specifyOffsetsAtLaunch = 1;
     configuration.makeForwardPlanOnly = direction_ == TransformDirection::r2c ? 1 : 0;
     configuration.makeInversePlanOnly = direction_ == TransformDirection::c2r ? 1 : 0;
 
@@ -563,23 +512,23 @@ private:
     }
   }
 
-  void run(bool inverse) const {
+  void run(VkBuffer fft_buffer, pfUINT buffer_offset, bool inverse) const {
     check_vk(vkResetCommandBuffer(command_buffer_, 0), "reset Vulkan command buffer");
 
     VkCommandBufferBeginInfo begin_info {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     check_vk(vkBeginCommandBuffer(command_buffer_, &begin_info), "begin Vulkan command buffer");
 
-    VkMemoryBarrier host_to_compute {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
-    host_to_compute.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
-    host_to_compute.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+    VkMemoryBarrier before_fft {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+    before_fft.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+    before_fft.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
     vkCmdPipelineBarrier(
       command_buffer_,
-      VK_PIPELINE_STAGE_HOST_BIT,
+      VK_PIPELINE_STAGE_HOST_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
       0,
       1,
-      &host_to_compute,
+      &before_fft,
       0,
       nullptr,
       0,
@@ -587,21 +536,26 @@ private:
     );
 
     VkFFTLaunchParams launch {};
-    VkBuffer buffer_handle = buffer_handle_;
+    VkBuffer buffer_handle = fft_buffer;
     launch.commandBuffer = &command_buffer_;
     launch.buffer = &buffer_handle;
+    launch.bufferOffset = buffer_offset;
     check_vkfft(VkFFTAppend(&app_, inverse ? 1 : 0, &launch), "execute VkFFT Vulkan plan");
 
-    VkMemoryBarrier compute_to_host {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
-    compute_to_host.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-    compute_to_host.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+    VkMemoryBarrier after_fft {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+    after_fft.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    after_fft.dstAccessMask =
+      VK_ACCESS_HOST_READ_BIT |
+      VK_ACCESS_TRANSFER_READ_BIT |
+      VK_ACCESS_SHADER_READ_BIT |
+      VK_ACCESS_SHADER_WRITE_BIT;
     vkCmdPipelineBarrier(
       command_buffer_,
       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-      VK_PIPELINE_STAGE_HOST_BIT,
+      VK_PIPELINE_STAGE_HOST_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
       0,
       1,
-      &compute_to_host,
+      &after_fft,
       0,
       nullptr,
       0,
@@ -628,7 +582,7 @@ private:
   std::size_t x_extent_ {0};
   std::size_t row_count_ {0};
   pfUINT buffer_size_ {0};
-  VulkanBuffer buffer_;
+  VulkanDeviceBuffer buffer_;
   VkPhysicalDevice physical_device_ {context_->physical_device()};
   VkDevice device_ {context_->device()};
   VkQueue queue_ {context_->queue()};
@@ -672,10 +626,14 @@ public:
     return BackendCapabilities{
       true,
       false,
-      false,
+      true,
       8,
       std::numeric_limits<int>::max(),
     };
+  }
+
+  VulkanRuntime* vulkan_runtime() noexcept override {
+    return context_.get();
   }
 
   Plan make_plan(
@@ -694,8 +652,6 @@ public:
 
   Completion submit_r2c(const Plan& plan, R2CBatch batch, SubmitOptions) const override {
     validate_batch_capacity(plan, batch.count);
-    validate_host_view(batch.input.domain);
-    validate_host_view(batch.output.domain);
     if (batch.count == 0) {
       return Completion::completed();
     }
@@ -704,14 +660,18 @@ public:
     if (native.direction() != TransformDirection::r2c) {
       throw std::runtime_error("VkFFT Vulkan r2c submitted with a non-r2c plan");
     }
-    native.submit_r2c(batch);
+    if (batch.input.domain == MemoryDomain::host && batch.output.domain == MemoryDomain::host) {
+      native.submit_r2c(batch);
+    } else if (batch.input.domain == MemoryDomain::device && batch.output.domain == MemoryDomain::device) {
+      native.submit_r2c_device(batch);
+    } else {
+      throw std::runtime_error("VkFFT Vulkan r2c requires matching host or device memory domains");
+    }
     return Completion::completed();
   }
 
   Completion submit_c2r(const Plan& plan, C2RBatch batch, SubmitOptions) const override {
     validate_batch_capacity(plan, batch.count);
-    validate_host_view(batch.input.domain);
-    validate_host_view(batch.output.domain);
     if (batch.count == 0) {
       return Completion::completed();
     }
@@ -720,7 +680,13 @@ public:
     if (native.direction() != TransformDirection::c2r) {
       throw std::runtime_error("VkFFT Vulkan c2r submitted with a non-c2r plan");
     }
-    native.submit_c2r(batch);
+    if (batch.input.domain == MemoryDomain::host && batch.output.domain == MemoryDomain::host) {
+      native.submit_c2r(batch);
+    } else if (batch.input.domain == MemoryDomain::device && batch.output.domain == MemoryDomain::device) {
+      native.submit_c2r_device(batch);
+    } else {
+      throw std::runtime_error("VkFFT Vulkan c2r requires matching host or device memory domains");
+    }
     return Completion::completed();
   }
 

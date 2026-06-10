@@ -1,0 +1,68 @@
+#pragma once
+
+#if defined(NEO_DFTTEST_ENABLE_VKFFT_VULKAN)
+
+#include "fft/fft_backend.hpp"
+#include "fft/vkfft_vulkan_runtime.hpp"
+
+#include <vulkan/vulkan.h>
+
+namespace neo_dfttest::fft {
+
+class VulkanDeviceBuffer final {
+public:
+  VulkanDeviceBuffer() = default;
+  VulkanDeviceBuffer(
+    VulkanRuntime& runtime,
+    VkDeviceSize size,
+    VkBufferUsageFlags usage,
+    VkMemoryPropertyFlags memory_properties
+  );
+
+  VulkanDeviceBuffer(const VulkanDeviceBuffer&) = delete;
+  VulkanDeviceBuffer& operator=(const VulkanDeviceBuffer&) = delete;
+
+  VulkanDeviceBuffer(VulkanDeviceBuffer&& other) noexcept;
+  VulkanDeviceBuffer& operator=(VulkanDeviceBuffer&& other) noexcept;
+
+  ~VulkanDeviceBuffer();
+
+  void reset() noexcept;
+
+  [[nodiscard]] explicit operator bool() const noexcept {
+    return buffer_ != VK_NULL_HANDLE;
+  }
+
+  [[nodiscard]] VkBuffer buffer() const noexcept {
+    return buffer_;
+  }
+
+  [[nodiscard]] VkDeviceMemory memory() const noexcept {
+    return memory_;
+  }
+
+  [[nodiscard]] VkDeviceSize size() const noexcept {
+    return size_;
+  }
+
+  [[nodiscard]] DeviceBufferView view() const noexcept;
+
+  [[nodiscard]] void* map() const;
+  void unmap() const noexcept;
+
+private:
+  VulkanRuntime* runtime_ {nullptr};
+  VkBuffer buffer_ {VK_NULL_HANDLE};
+  VkDeviceMemory memory_ {VK_NULL_HANDLE};
+  VkDeviceSize size_ {0};
+};
+
+[[nodiscard]] VulkanDeviceBuffer make_vulkan_storage_buffer(
+  VulkanRuntime& runtime,
+  VkDeviceSize size,
+  VkMemoryPropertyFlags memory_properties
+);
+
+} // namespace neo_dfttest::fft
+
+#endif
