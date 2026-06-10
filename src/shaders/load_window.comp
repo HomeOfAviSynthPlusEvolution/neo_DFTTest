@@ -24,6 +24,10 @@ layout(push_constant) uniform LoadWindowParams {
   uint window_offset;
   uint output_offset;
   uint output_stride;
+  uint source_width;
+  uint source_height;
+  uint pad_x;
+  uint pad_y;
   float divisor;
 } params;
 
@@ -49,6 +53,18 @@ float read_sample(uint byte_offset) {
   return uintBitsToFloat(source_words[byte_offset >> 2]) * 255.0;
 }
 
+uint mirror_coordinate(uint padded_coordinate, uint pad, uint size) {
+  int coordinate = int(padded_coordinate) - int(pad);
+  if (coordinate < 0) {
+    coordinate = -coordinate;
+  }
+  int limit = int(size);
+  if (coordinate >= limit) {
+    coordinate = limit * 2 - coordinate - 2;
+  }
+  return uint(clamp(coordinate, 0, limit - 1));
+}
+
 void main() {
   uint x = gl_GlobalInvocationID.x;
   uint y = gl_GlobalInvocationID.y;
@@ -63,10 +79,12 @@ void main() {
   }
 
   uint sample_bytes = params.sample_kind;
+  uint sample_x = mirror_coordinate(params.source_x + x, params.pad_x, params.source_width);
+  uint sample_y = mirror_coordinate(params.source_y + y, params.pad_y, params.source_height);
   uint source_offset =
     params.source_base_bytes +
-    (params.source_y + y) * params.source_stride_bytes +
-    (params.source_x + x) * sample_bytes;
+    sample_y * params.source_stride_bytes +
+    sample_x * sample_bytes;
   uint window_index = params.window_offset + y * params.block_size + x;
   output_values[output_index] = read_sample(source_offset) * window_values[window_index];
 }

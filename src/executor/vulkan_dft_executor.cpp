@@ -217,10 +217,14 @@ struct LoadWindowPushConstants {
   std::uint32_t window_offset {0};
   std::uint32_t output_offset {0};
   std::uint32_t output_stride {0};
+  std::uint32_t source_width {0};
+  std::uint32_t source_height {0};
+  std::uint32_t pad_x {0};
+  std::uint32_t pad_y {0};
   float divisor {1.0f};
 };
 
-static_assert(sizeof(LoadWindowPushConstants) == 40);
+static_assert(sizeof(LoadWindowPushConstants) == 56);
 
 enum class FrequencyOp : std::uint32_t {
   remove_mean = 0,
@@ -716,27 +720,28 @@ public:
     if (request.source_count <= 0 || request.source_count > kMaxDftTemporalFrames) {
       throw std::runtime_error("Vulkan DFT executor received an invalid source frame count");
     }
+    if (!can_write_vulkan_output(request.workspace.host_view(), request.context)) {
+      process_with_cpu_padding(request);
+      return;
+    }
 
-    const int pad_block_size = request.context.planes.pad_block_size[request.plane];
-    const int pad_stride = request.context.planes.pad_stride[request.plane];
-    AlignedBuffer<unsigned char> padded(
-      static_cast<std::size_t>(pad_block_size) * static_cast<std::size_t>(request.source_count)
-    );
+    const std::size_t source_frame_bytes = source_upload_bytes(request.sources[0], request.plane, request.context);
+    AlignedBuffer<unsigned char> source_upload(source_frame_bytes * static_cast<std::size_t>(request.source_count));
 
     for (int index = 0; index < request.source_count; ++index) {
-      copy_pad(DftCopyPadRequest{
-        request.plane,
-        request.sources[static_cast<std::size_t>(index)],
-        DFTMutablePlaneBytes{padded.data() + pad_block_size * index, pad_stride},
-        request.context
-      });
+      const DFTPlaneBytes source = request.sources[static_cast<std::size_t>(index)];
+      const std::size_t bytes = source_upload_bytes(source, request.plane, request.context);
+      if (bytes != source_frame_bytes) {
+        throw std::runtime_error("Vulkan DFT executor received inconsistent source frame strides");
+      }
+      std::memcpy(source_upload.data() + source_frame_bytes * static_cast<std::size_t>(index), source.data, bytes);
     }
 
     if (request.mode == DftProcessMode::spatial) {
       process_spatial(DftProcessSpatialRequest{
         request.workspace,
         request.plane,
-        DFTPlaneBytes{padded.data(), pad_stride},
+        DFTPlaneBytes{source_upload.data(), request.sources[0].stride_bytes},
         request.destination,
         request.context
       });
@@ -746,7 +751,7 @@ public:
     process_temporal(DftProcessTemporalRequest{
       request.workspace,
       request.plane,
-      DFTPlaneBytes{padded.data(), pad_stride},
+      DFTPlaneBytes{source_upload.data(), request.sources[0].stride_bytes},
       request.destination,
       request.temporal_position,
       request.context
@@ -793,11 +798,62 @@ private:
     );
   }
 
+  void process_with_cpu_padding(DftProcessRequest request) {
+    const int pad_block_size = request.context.planes.pad_block_size[request.plane];
+    const int pad_stride = request.context.planes.pad_stride[request.plane];
+    AlignedBuffer<unsigned char> padded(
+      static_cast<std::size_t>(pad_block_size) * static_cast<std::size_t>(request.source_count)
+    );
+
+    for (int index = 0; index < request.source_count; ++index) {
+      copy_pad(DftCopyPadRequest{
+        request.plane,
+        request.sources[static_cast<std::size_t>(index)],
+        DFTMutablePlaneBytes{padded.data() + pad_block_size * index, pad_stride},
+        request.context
+      });
+    }
+
+    if (request.mode == DftProcessMode::spatial) {
+      fallback_->process_spatial(DftProcessSpatialRequest{
+        request.workspace,
+        request.plane,
+        DFTPlaneBytes{padded.data(), pad_stride},
+        request.destination,
+        request.context
+      });
+      return;
+    }
+
+    fallback_->process_temporal(DftProcessTemporalRequest{
+      request.workspace,
+      request.plane,
+      DFTPlaneBytes{padded.data(), pad_stride},
+      request.destination,
+      request.temporal_position,
+      request.context
+    });
+  }
+
+  [[nodiscard]] bool can_write_vulkan_output(DFTThreadWorkspaceView host_workspace, const DFTKernelContext& context) const noexcept {
+    return context.format.bytes_per_sample != 1 ||
+      context.block.dither_mode <= 1 ||
+      host_workspace.dither_rng != nullptr;
+  }
+
+  [[nodiscard]] static std::size_t source_upload_bytes(
+    DFTPlaneBytes source,
+    int plane,
+    const DFTKernelContext& context
+  ) noexcept {
+    return static_cast<std::size_t>(source.stride_bytes) * static_cast<std::size_t>(context.planes.height[plane]);
+  }
+
   void stage_spatial_forward_batches(VulkanDftWorkspace& workspace, const DftProcessSpatialRequest& request) {
     upload_padded_source(
       workspace,
       request.source,
-      static_cast<VkDeviceSize>(request.context.planes.pad_block_size[request.plane])
+      static_cast<VkDeviceSize>(source_upload_bytes(request.source, request.plane, request.context))
     );
     fft::clear_vulkan_buffer_view(*runtime_, workspace.accumulation());
 
@@ -809,6 +865,7 @@ private:
         dispatch_load_window(
           workspace,
           request.context,
+          request.plane,
           request.source.stride_bytes,
           0,
           x,
@@ -839,7 +896,7 @@ private:
       workspace,
       request.source,
       static_cast<VkDeviceSize>(
-        request.context.planes.pad_block_size[request.plane] * request.context.block.temporal_size
+        source_upload_bytes(request.source, request.plane, request.context) * request.context.block.temporal_size
       )
     );
     fft::clear_vulkan_buffer_view(*runtime_, workspace.accumulation());
@@ -851,7 +908,7 @@ private:
       [&](int y, int x, int batch_index, int slot) {
         for (int z = 0; z < request.context.block.temporal_size; ++z) {
           const std::size_t source_base =
-            static_cast<std::size_t>(request.context.planes.pad_block_size[request.plane]) *
+            source_upload_bytes(request.source, request.plane, request.context) *
             static_cast<std::size_t>(z);
           const std::size_t window_offset =
             static_cast<std::size_t>(request.context.derived.block_area) *
@@ -865,6 +922,7 @@ private:
           dispatch_load_window(
             workspace,
             request.context,
+            request.plane,
             request.source.stride_bytes,
             source_base,
             x,
@@ -1022,6 +1080,7 @@ private:
   void dispatch_load_window(
     VulkanDftWorkspace& workspace,
     const DFTKernelContext& context,
+    int plane,
     int source_stride_bytes,
     std::size_t source_base_bytes,
     int source_x,
@@ -1042,6 +1101,10 @@ private:
       checked_u32(window_offset, "window offset"),
       checked_u32(output_offset, "output offset"),
       static_cast<std::uint32_t>(context.block.spatial_size + 2),
+      static_cast<std::uint32_t>(context.planes.width[plane]),
+      static_cast<std::uint32_t>(context.planes.height[plane]),
+      static_cast<std::uint32_t>((context.planes.pad_width[plane] - context.planes.width[plane]) / 2),
+      static_cast<std::uint32_t>((context.planes.pad_height[plane] - context.planes.height[plane]) / 2),
       context.sample.divisor
     };
 
