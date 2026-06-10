@@ -1,0 +1,67 @@
+#version 450
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, std430) readonly buffer SourceBuffer {
+  uint source_words[];
+};
+
+layout(set = 0, binding = 1, std430) readonly buffer WindowBuffer {
+  float window_values[];
+};
+
+layout(set = 0, binding = 2, std430) writeonly buffer OutputBuffer {
+  float output_values[];
+};
+
+layout(push_constant) uniform LoadWindowParams {
+  uint source_base_bytes;
+  uint source_stride_bytes;
+  uint source_x;
+  uint source_y;
+  uint block_size;
+  uint sample_kind;
+  uint window_offset;
+  uint output_offset;
+  uint output_stride;
+  float divisor;
+} params;
+
+uint read_u8(uint byte_offset) {
+  uint word = source_words[byte_offset >> 2];
+  uint shift = (byte_offset & 3u) * 8u;
+  return (word >> shift) & 0xffu;
+}
+
+uint read_u16(uint byte_offset) {
+  uint word = source_words[byte_offset >> 2];
+  uint shift = (byte_offset & 2u) * 8u;
+  return (word >> shift) & 0xffffu;
+}
+
+float read_sample(uint byte_offset) {
+  if (params.sample_kind == 1u) {
+    return float(read_u8(byte_offset));
+  }
+  if (params.sample_kind == 2u) {
+    return float(read_u16(byte_offset)) * params.divisor;
+  }
+  return uintBitsToFloat(source_words[byte_offset >> 2]) * 255.0;
+}
+
+void main() {
+  uint x = gl_GlobalInvocationID.x;
+  uint y = gl_GlobalInvocationID.y;
+  if (x >= params.block_size || y >= params.block_size) {
+    return;
+  }
+
+  uint sample_bytes = params.sample_kind;
+  uint source_offset =
+    params.source_base_bytes +
+    (params.source_y + y) * params.source_stride_bytes +
+    (params.source_x + x) * sample_bytes;
+  uint window_index = params.window_offset + y * params.block_size + x;
+  uint output_index = params.output_offset + y * params.output_stride + x;
+  output_values[output_index] = read_sample(source_offset) * window_values[window_index];
+}

@@ -69,8 +69,22 @@ if(NEO_DFTTEST_ENABLE_VKFFT_VULKAN)
     src/executor/vulkan_dft_executor.cpp
     src/fft/vkfft_vulkan_buffer.cpp
     src/fft/vkfft_vulkan_backend.cpp
+    src/vulkan/vulkan_compute.cpp
+    src/vulkan/vulkan_compute.hpp
   )
+  set(NEO_DFTTEST_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/neo_dfttest")
+  set(NEO_DFTTEST_LOAD_WINDOW_SPV "${NEO_DFTTEST_GENERATED_DIR}/load_window_comp_spv.inc")
+  add_custom_command(
+    OUTPUT "${NEO_DFTTEST_LOAD_WINDOW_SPV}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${NEO_DFTTEST_GENERATED_DIR}"
+    COMMAND $<TARGET_FILE:glslang-standalone> --quiet -V -x -S comp -o "${NEO_DFTTEST_LOAD_WINDOW_SPV}" "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/load_window.comp"
+    DEPENDS glslang-standalone "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/load_window.comp"
+    VERBATIM
+  )
+  add_custom_target(neo-dfttest-vulkan-shaders DEPENDS "${NEO_DFTTEST_LOAD_WINDOW_SPV}")
+  add_dependencies(neo-dfttest neo-dfttest-vulkan-shaders)
   target_include_directories(neo-dfttest PRIVATE
+    "${CMAKE_CURRENT_BINARY_DIR}/generated"
     ${vkfft_SOURCE_DIR}/vkFFT
     ${glslang-main_SOURCE_DIR}/glslang/Include
   )
