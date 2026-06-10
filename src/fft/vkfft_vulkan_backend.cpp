@@ -104,7 +104,7 @@ std::size_t batch_storage_elements(int max_batch, std::size_t per_transform_elem
   return static_cast<std::size_t>(max_batch) * per_transform_elements;
 }
 
-bool requires_device_idle_after_submit(VkPhysicalDevice physical_device) noexcept {
+bool requires_queue_idle_after_submit(VkPhysicalDevice physical_device) noexcept {
   VkPhysicalDeviceProperties properties {};
   vkGetPhysicalDeviceProperties(physical_device, &properties);
   return properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU;
@@ -340,7 +340,7 @@ public:
         buffer_size_,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
       )) {
-    wait_idle_after_submit_ = requires_device_idle_after_submit(context_->physical_device());
+    wait_queue_idle_after_submit_ = requires_queue_idle_after_submit(context_->physical_device());
     validate_layout();
     allocate_command_buffer();
     initialize_app();
@@ -561,8 +561,8 @@ private:
     check_vk(vkQueueSubmit(context_->queue(), 1, &submit_info, context_->fence()), "submit Vulkan command buffer");
     check_vk(vkWaitForFences(context_->device(), 1, &fence_, VK_TRUE, std::numeric_limits<std::uint64_t>::max()), "wait for Vulkan fence");
     check_vk(vkResetFences(context_->device(), 1, &fence_), "reset Vulkan fence");
-    if (wait_idle_after_submit_) {
-      check_vk(vkDeviceWaitIdle(context_->device()), "wait for Vulkan CPU device idle after VkFFT");
+    if (wait_queue_idle_after_submit_) {
+      check_vk(vkQueueWaitIdle(context_->queue()), "wait for Vulkan CPU queue idle after VkFFT");
     }
   }
 
@@ -586,7 +586,7 @@ private:
   mutable VkCommandBuffer command_buffer_ {VK_NULL_HANDLE};
   mutable VkFFTApplication app_ {};
   mutable bool app_initialized_ {false};
-  bool wait_idle_after_submit_ {false};
+  bool wait_queue_idle_after_submit_ {false};
 };
 
 const VkfftPlan& vkfft_plan(const Plan& plan) noexcept {
