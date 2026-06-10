@@ -11,6 +11,7 @@
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <random>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -108,6 +109,18 @@ constexpr std::uint32_t kWriteOutputSpv[] = {
   return checked_bytes(std::max<std::size_t>(width * 2u, 1u), sizeof(float), "dither");
 }
 
+[[nodiscard]] VkDeviceSize max_random_bytes(const DFTKernelContext& context) {
+  std::size_t pixels = 0;
+  for (int plane = 0; plane < context.format.num_planes; ++plane) {
+    pixels = std::max(
+      pixels,
+      static_cast<std::size_t>(context.planes.width[plane]) *
+        static_cast<std::size_t>(context.planes.height[plane])
+    );
+  }
+  return checked_bytes(std::max<std::size_t>(pixels, 1u), sizeof(float), "random dither");
+}
+
 [[nodiscard]] fft::VulkanDeviceBuffer make_workspace_buffer(fft::VulkanRuntime& runtime, VkDeviceSize size) {
   try {
     return fft::make_vulkan_storage_buffer(runtime, size, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
@@ -129,6 +142,7 @@ struct VulkanDftWorkspaceShape {
   VkDeviceSize accumulation_bytes {0};
   VkDeviceSize output_bytes {0};
   VkDeviceSize dither_bytes {0};
+  VkDeviceSize random_bytes {0};
 
   [[nodiscard]] bool operator==(const VulkanDftWorkspaceShape& other) const noexcept {
     return complex_stride == other.complex_stride &&
@@ -138,7 +152,8 @@ struct VulkanDftWorkspaceShape {
       padded_frame_bytes == other.padded_frame_bytes &&
       accumulation_bytes == other.accumulation_bytes &&
       output_bytes == other.output_bytes &&
-      dither_bytes == other.dither_bytes;
+      dither_bytes == other.dither_bytes &&
+      random_bytes == other.random_bytes;
   }
 };
 
@@ -162,7 +177,8 @@ struct VulkanDftCoefficientShape {
     max_padded_frame_bytes(context),
     max_accumulation_bytes(context),
     max_output_bytes(context),
-    max_dither_bytes(context)
+    max_dither_bytes(context),
+    max_random_bytes(context)
   };
 }
 
@@ -307,6 +323,7 @@ public:
     accumulation_ = make_workspace_buffer(*runtime_, next.accumulation_bytes);
     output_ = make_workspace_buffer(*runtime_, next.output_bytes);
     dither_ = make_workspace_buffer(*runtime_, next.dither_bytes);
+    random_ = make_workspace_buffer(*runtime_, next.random_bytes);
 
     fft::clear_vulkan_buffer(*runtime_, padded_frame_);
     for (auto& buffer : fft_storage_) {
@@ -318,6 +335,7 @@ public:
     fft::clear_vulkan_buffer(*runtime_, accumulation_);
     fft::clear_vulkan_buffer(*runtime_, output_);
     fft::clear_vulkan_buffer(*runtime_, dither_);
+    fft::clear_vulkan_buffer(*runtime_, random_);
 
     shape_ = next;
     ready_ = true;
@@ -359,6 +377,14 @@ public:
     return dither_.view();
   }
 
+  [[nodiscard]] fft::DeviceBufferView random() const noexcept {
+    return random_.view();
+  }
+
+  [[nodiscard]] fft::VulkanDeviceBuffer& random_buffer() noexcept {
+    return random_;
+  }
+
   [[nodiscard]] int fft_storage_stride() const noexcept {
     return shape_.fft_storage_stride;
   }
@@ -381,6 +407,7 @@ private:
   fft::VulkanDeviceBuffer accumulation_;
   fft::VulkanDeviceBuffer output_;
   fft::VulkanDeviceBuffer dither_;
+  fft::VulkanDeviceBuffer random_;
 };
 
 class VulkanDftCoefficientCache final {
@@ -598,7 +625,7 @@ public:
     : pipeline_(
         runtime,
         std::span<const std::uint32_t>{kWriteOutputSpv, sizeof(kWriteOutputSpv) / sizeof(kWriteOutputSpv[0])},
-        3,
+        4,
         sizeof(WriteOutputPushConstants)
       ) {}
 
@@ -606,9 +633,10 @@ public:
     fft::DeviceBufferView accumulation,
     fft::DeviceBufferView output,
     fft::DeviceBufferView dither,
+    fft::DeviceBufferView random,
     const WriteOutputPushConstants& constants
   ) const {
-    const std::array<fft::DeviceBufferView, 3> buffers {accumulation, output, dither};
+    const std::array<fft::DeviceBufferView, 4> buffers {accumulation, output, dither, random};
     pipeline_.dispatch(
       buffers,
       &constants,
@@ -728,7 +756,7 @@ public:
   void process_spatial(DftProcessSpatialRequest request) override {
     VulkanDftWorkspace& workspace = prepare_workspace(request.workspace, request.context);
     stage_spatial_forward_batches(workspace, request);
-    if (write_output_from_accumulation(workspace, request.destination, request.plane, request.context)) {
+    if (write_output_from_accumulation(workspace, request.workspace.host_view(), request.destination, request.plane, request.context)) {
       return;
     }
     fallback_->process_spatial(request);
@@ -737,7 +765,7 @@ public:
   void process_temporal(DftProcessTemporalRequest request) override {
     VulkanDftWorkspace& workspace = prepare_workspace(request.workspace, request.context);
     stage_temporal_forward_batches(workspace, request);
-    if (write_output_from_accumulation(workspace, request.destination, request.plane, request.context)) {
+    if (write_output_from_accumulation(workspace, request.workspace.host_view(), request.destination, request.plane, request.context)) {
       return;
     }
     fallback_->process_temporal(request);
@@ -1027,18 +1055,18 @@ private:
 
   bool write_output_from_accumulation(
     VulkanDftWorkspace& workspace,
+    DFTThreadWorkspaceView host_workspace,
     DFTMutablePlaneBytes destination,
     int plane,
     const DFTKernelContext& context
   ) {
-    if (context.format.bytes_per_sample == 1 && context.block.dither_mode > 1) {
-      return false;
-    }
-
     const int width = context.planes.width[plane];
     const int height = context.planes.height[plane];
     if (width <= 0 || height <= 0) {
       return true;
+    }
+    if (!prepare_random_dither_values(workspace, host_workspace, context, width, height)) {
+      return false;
     }
 
     const std::size_t accumulation_offset =
@@ -1063,7 +1091,13 @@ private:
       context.sample.multiplier
     };
 
-    write_output_->dispatch(workspace.accumulation(), workspace.output(), workspace.dither(), constants);
+    write_output_->dispatch(
+      workspace.accumulation(),
+      workspace.output(),
+      workspace.dither(),
+      workspace.random(),
+      constants
+    );
 
     std::vector<unsigned char> packed(output_bytes);
     fft::download_from_vulkan_buffer(
@@ -1081,6 +1115,35 @@ private:
       );
     }
 
+    return true;
+  }
+
+  bool prepare_random_dither_values(
+    VulkanDftWorkspace& workspace,
+    DFTThreadWorkspaceView host_workspace,
+    const DFTKernelContext& context,
+    int width,
+    int height
+  ) {
+    if (context.format.bytes_per_sample != 1 || context.block.dither_mode <= 1) {
+      return true;
+    }
+    if (host_workspace.dither_rng == nullptr) {
+      return false;
+    }
+
+    std::vector<float> random_values(static_cast<std::size_t>(width) * static_cast<std::size_t>(height));
+    std::uniform_real_distribution<float> distribution(0.0f, 1.0f);
+    for (float& value : random_values) {
+      value = distribution(*host_workspace.dither_rng);
+    }
+
+    fft::upload_to_vulkan_buffer(
+      *runtime_,
+      workspace.random_buffer(),
+      random_values.data(),
+      static_cast<VkDeviceSize>(random_values.size() * sizeof(float))
+    );
     return true;
   }
 

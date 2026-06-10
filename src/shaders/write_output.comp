@@ -14,6 +14,10 @@ layout(set = 0, binding = 2, std430) buffer DitherBuffer {
   float dither_values[];
 };
 
+layout(set = 0, binding = 3, std430) readonly buffer RandomBuffer {
+  float random_values[];
+};
+
 layout(push_constant) uniform WriteOutputParams {
   uint accumulation_offset;
   uint accumulation_stride;
@@ -65,10 +69,13 @@ void write_u8_pixel(uint x, uint y, uint sample_value) {
   output_words[word_index] = (word & ~mask) | ((sample_value & 0xffu) << shift);
 }
 
-void write_dither1_u8() {
+void write_dither_u8() {
   for (uint x = 0u; x < params.width; ++x) {
     dither_values[x] = 0.0;
   }
+
+  float scale = float(params.dither_mode - 1u) + 0.5;
+  float offset = scale * 0.5;
 
   for (uint y = 0u; y < params.height; ++y) {
     uint dc_base = (y & 1u) * params.width;
@@ -79,7 +86,8 @@ void write_dither1_u8() {
 
     for (uint x = 0u; x < params.width; ++x) {
       float source_value = accumulation_at(x, y);
-      int candidate = int(source_value + dither_values[dc_base + x] + 0.5);
+      float noise = params.dither_mode == 1u ? 0.0 : random_values[y * params.width + x] * scale - offset;
+      int candidate = int(source_value + noise + dither_values[dc_base + x] + 0.5);
       uint sample_value = uint(clamp(candidate, 0, 255));
       write_u8_pixel(x, y, sample_value);
 
@@ -123,9 +131,9 @@ void main() {
   uint word_x = gl_GlobalInvocationID.x;
   uint y = gl_GlobalInvocationID.y;
 
-  if (params.sample_kind == 1u && params.dither_mode == 1u) {
+  if (params.sample_kind == 1u && params.dither_mode > 0u) {
     if (word_x == 0u && y == 0u) {
-      write_dither1_u8();
+      write_dither_u8();
     }
     return;
   }
