@@ -391,10 +391,6 @@ public:
     return random_.view();
   }
 
-  [[nodiscard]] fft::VulkanDeviceBuffer& random_buffer() noexcept {
-    return random_;
-  }
-
   [[nodiscard]] int fft_storage_stride() const noexcept {
     return shape_.fft_storage_stride;
   }
@@ -1420,7 +1416,8 @@ private:
     if (width <= 0 || height <= 0) {
       return true;
     }
-    if (!prepare_random_dither_values(workspace, host_workspace, context, width, height)) {
+    std::vector<float> random_values;
+    if (!prepare_random_dither_values(host_workspace, context, width, height, random_values)) {
       return false;
     }
 
@@ -1458,11 +1455,23 @@ private:
       VK_BUFFER_USAGE_TRANSFER_DST_BIT,
       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
     );
+    std::vector<fft::VulkanBufferUpload> random_uploads;
+    if (!random_values.empty()) {
+      random_uploads.push_back(fft::VulkanBufferUpload{
+        workspace.random(),
+        random_values.data(),
+        static_cast<VkDeviceSize>(random_values.size() * sizeof(float))
+      });
+    }
+    auto random_staging_buffers = fft::make_vulkan_upload_staging_buffers(*runtime_, random_uploads);
 
     struct WriteOutputRecordRequest {
       VulkanWriteOutputKernel* write_output;
       const vulkan::ComputeBinding* output_binding;
       const WriteOutputPushConstants* constants;
+      const fft::VulkanBufferUpload* random_uploads;
+      std::size_t random_upload_count;
+      const std::vector<fft::VulkanDeviceBuffer>* random_staging_buffers;
       fft::VulkanDeviceBuffer* output;
       fft::VulkanDeviceBuffer* staging;
       VkDeviceSize bytes;
@@ -1470,6 +1479,9 @@ private:
       write_output_.get(),
       &output_binding,
       &constants,
+      random_uploads.data(),
+      random_uploads.size(),
+      &random_staging_buffers,
       &workspace.output_buffer(),
       &staging,
       static_cast<VkDeviceSize>(output_bytes)
@@ -1479,6 +1491,11 @@ private:
       *runtime_,
       [](VkCommandBuffer command_buffer, void* user) {
         const auto& request = *static_cast<WriteOutputRecordRequest*>(user);
+        fft::record_vulkan_buffer_uploads(
+          command_buffer,
+          std::span<const fft::VulkanBufferUpload>{request.random_uploads, request.random_upload_count},
+          *request.random_staging_buffers
+        );
         request.write_output->record(command_buffer, *request.output_binding, *request.constants);
 
         VkBufferCopy region {};
@@ -1505,11 +1522,11 @@ private:
   }
 
   bool prepare_random_dither_values(
-    VulkanDftWorkspace& workspace,
     DFTThreadWorkspaceView host_workspace,
     const DFTKernelContext& context,
     int width,
-    int height
+    int height,
+    std::vector<float>& random_values
   ) {
     if (context.format.bytes_per_sample != 1 || context.block.dither_mode <= 1) {
       return true;
@@ -1518,18 +1535,11 @@ private:
       return false;
     }
 
-    std::vector<float> random_values(static_cast<std::size_t>(width) * static_cast<std::size_t>(height));
+    random_values.resize(static_cast<std::size_t>(width) * static_cast<std::size_t>(height));
     std::uniform_real_distribution<float> distribution(0.0f, 1.0f);
     for (float& value : random_values) {
       value = distribution(*host_workspace.dither_rng);
     }
-
-    fft::upload_to_vulkan_buffer(
-      *runtime_,
-      workspace.random_buffer(),
-      random_values.data(),
-      static_cast<VkDeviceSize>(random_values.size() * sizeof(float))
-    );
     return true;
   }
 
