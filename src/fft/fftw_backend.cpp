@@ -1,24 +1,24 @@
 #include "fft/fft_backend.hpp"
-
-#include "fftwlite.h"
+#include "fft/fftw_runtime.hpp"
 
 #include <limits>
 #include <stdexcept>
+#include <utility>
 
 namespace neo_dfttest::fft {
 namespace {
 
 class FftwPlan final : public Plan::State {
 public:
-  FftwPlan(FFTFunctionPointers& api, fftwf_plan plan) noexcept
-    : api_(api), plan_(plan) {}
+  FftwPlan(std::shared_ptr<const FftwRuntime> api, fftwf_plan plan) noexcept
+    : api_(std::move(api)), plan_(plan) {}
 
   FftwPlan(const FftwPlan&) = delete;
   FftwPlan& operator=(const FftwPlan&) = delete;
 
   ~FftwPlan() override {
     if (plan_) {
-      api_.fftwf_destroy_plan(plan_);
+      api_->fftwf_destroy_plan(plan_);
     }
   }
 
@@ -27,7 +27,7 @@ public:
   }
 
 private:
-  FFTFunctionPointers& api_;
+  std::shared_ptr<const FftwRuntime> api_;
   fftwf_plan plan_ {nullptr};
 };
 
@@ -67,28 +67,26 @@ public:
   }
 
   void load() override {
-    try {
-      api_.load();
-    } catch (const char* error) {
-      throw std::runtime_error(error);
-    }
+    api_ = FftwRuntime::load();
   }
 
   void unload() noexcept override {
-    api_.free();
+    api_.reset();
   }
 
   bool loaded() const noexcept override {
-    return api_.library != nullptr;
+    return api_ && api_->loaded();
   }
 
   bool has_threading() const noexcept override {
-    return api_.has_threading();
+    return api_ && api_->has_threading();
   }
 
   void set_thread_count(int nthreads) override {
-    api_.fftwf_init_threads();
-    api_.fftwf_plan_with_nthreads(nthreads);
+    if (has_threading()) {
+      api_->fftwf_init_threads();
+      api_->fftwf_plan_with_nthreads(nthreads);
+    }
   }
 
   BackendCapabilities capabilities() const noexcept override {
@@ -109,19 +107,23 @@ public:
     Complex* complex_workspace,
     PlanOptions options
   ) override {
+    if (!loaded()) {
+      throw std::runtime_error("fftw: backend not loaded");
+    }
+
     const unsigned flags = fftw_flags(options);
     fftwf_plan plan = nullptr;
     if (shape.rank == 2) {
       if (direction == TransformDirection::r2c) {
-        plan = api_.fftwf_plan_dft_r2c_2d(shape.extents[0], shape.extents[1], real_workspace, fftw_complex(complex_workspace), flags);
+        plan = api_->fftwf_plan_dft_r2c_2d(shape.extents[0], shape.extents[1], real_workspace, fftw_complex(complex_workspace), flags);
       } else {
-        plan = api_.fftwf_plan_dft_c2r_2d(shape.extents[0], shape.extents[1], fftw_complex(complex_workspace), real_workspace, flags);
+        plan = api_->fftwf_plan_dft_c2r_2d(shape.extents[0], shape.extents[1], fftw_complex(complex_workspace), real_workspace, flags);
       }
     } else if (shape.rank == 3) {
       if (direction == TransformDirection::r2c) {
-        plan = api_.fftwf_plan_dft_r2c_3d(shape.extents[0], shape.extents[1], shape.extents[2], real_workspace, fftw_complex(complex_workspace), flags);
+        plan = api_->fftwf_plan_dft_r2c_3d(shape.extents[0], shape.extents[1], shape.extents[2], real_workspace, fftw_complex(complex_workspace), flags);
       } else {
-        plan = api_.fftwf_plan_dft_c2r_3d(shape.extents[0], shape.extents[1], shape.extents[2], fftw_complex(complex_workspace), real_workspace, flags);
+        plan = api_->fftwf_plan_dft_c2r_3d(shape.extents[0], shape.extents[1], shape.extents[2], fftw_complex(complex_workspace), real_workspace, flags);
       }
     } else {
       throw std::runtime_error("unsupported FFT rank");
@@ -139,7 +141,7 @@ public:
     auto* in = batch.input.data;
     auto* out = batch.output.data;
     for (int index = 0; index < batch.count; ++index) {
-      api_.fftwf_execute_dft_r2c(native_plan, in, fftw_complex(out));
+      api_->fftwf_execute_dft_r2c(native_plan, in, fftw_complex(out));
       in += batch.input.stride_elements;
       out += batch.output.stride_elements;
     }
@@ -152,7 +154,7 @@ public:
     auto* in = batch.input.data;
     auto* out = batch.output.data;
     for (int index = 0; index < batch.count; ++index) {
-      api_.fftwf_execute_dft_c2r(native_plan, fftw_complex(in), out);
+      api_->fftwf_execute_dft_c2r(native_plan, fftw_complex(in), out);
       in += batch.input.stride_elements;
       out += batch.output.stride_elements;
     }
@@ -160,7 +162,7 @@ public:
   }
 
 private:
-  FFTFunctionPointers api_{};
+  std::shared_ptr<const FftwRuntime> api_;
 };
 
 } // namespace

@@ -22,12 +22,16 @@ add_library(neo-dfttest SHARED
   src/executor/dft_fft_operation.hpp
   src/executor/dft_memory_plan.hpp
   src/fft/fft_backend.hpp
+  src/fft/dynamic_library.cpp
+  src/fft/dynamic_library.hpp
+  src/fft/fftw_abi.hpp
   src/fft/fftw_backend.cpp
+  src/fft/fftw_runtime.cpp
+  src/fft/fftw_runtime.hpp
   src/fft/pocketfft_backend.cpp
   src/fft/vkfft_vulkan_buffer.hpp
   src/fft/vkfft_vulkan_runtime.hpp
   src/engine/pixel_plane.hpp
-  src/fftwlite.h
   src/memory/aligned_buffer.hpp
   src/pipeline/dft_cpu_pipeline.hpp
   src/workspace/dft_workspace.hpp
